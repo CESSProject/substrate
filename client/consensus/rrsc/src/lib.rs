@@ -110,7 +110,7 @@ use sp_consensus::{
 	BlockOrigin, CacheKeyId, CanAuthorWith, Environment, Error as ConsensusError, Proposer,
 	SelectChain, SlotData,
 };
-use sp_consensus_rrsc::inherents::RRSCInherentData;
+use cessp_consensus_rrsc::inherents::RRSCInherentData;
 use sp_consensus_slots::Slot;
 use sp_core::{crypto::Public, ExecutionContext};
 use sp_inherents::{CreateInherentDataProviders, InherentData, InherentDataProvider};
@@ -122,7 +122,7 @@ use sp_runtime::{
 
 pub use sc_consensus_slots::SlotProportion;
 pub use sp_consensus::SyncOracle;
-pub use sp_consensus_rrsc::{
+pub use cessp_consensus_rrsc::{
 	digests::{
 		CompatibleDigestItem, NextConfigDescriptor, NextEpochDescriptor, PreDigest,
 		PrimaryPreDigest, SecondaryPlainPreDigest,
@@ -186,8 +186,8 @@ impl EpochT for Epoch {
 	}
 }
 
-impl From<sp_consensus_rrsc::Epoch> for Epoch {
-	fn from(epoch: sp_consensus_rrsc::Epoch) -> Self {
+impl From<cessp_consensus_rrsc::Epoch> for Epoch {
+	fn from(epoch: cessp_consensus_rrsc::Epoch) -> Self {
 		Epoch {
 			epoch_index: epoch.epoch_index,
 			start_slot: epoch.start_slot,
@@ -569,7 +569,7 @@ async fn answer_requests<B: BlockT, C>(
 						})
 						.ok_or_else(|| Error::<B>::FetchEpoch(parent_hash))?;
 
-					Ok(sp_consensus_rrsc::Epoch {
+					Ok(cessp_consensus_rrsc::Epoch {
 						epoch_index: viable_epoch.as_ref().epoch_index,
 						start_slot: viable_epoch.as_ref().start_slot,
 						duration: viable_epoch.as_ref().duration,
@@ -595,7 +595,7 @@ pub enum RRSCRequest<B: BlockT> {
 		B::Hash,
 		NumberFor<B>,
 		Slot,
-		oneshot::Sender<Result<sp_consensus_rrsc::Epoch, Error<B>>>,
+		oneshot::Sender<Result<cessp_consensus_rrsc::Epoch, Error<B>>>,
 	),
 }
 

@@ -22,7 +22,7 @@ use super::Epoch;
 use codec::Encode;
 use schnorrkel::{keys::PublicKey, vrf::VRFInOut};
 use sp_application_crypto::AppKey;
-use sp_consensus_rrsc::{
+use cessp_consensus_rrsc::{
 	digests::{PreDigest, PrimaryPreDigest, SecondaryPlainPreDigest, SecondaryVRFPreDigest},
 	make_transcript, make_transcript_data, AuthorityId, RRSCAuthorityWeight, Slot, RRSC_VRF_PREFIX,
 };
@@ -273,7 +273,7 @@ fn claim_primary_slot(
 mod tests {
 	use super::*;
 	use sc_keystore::LocalKeystore;
-	use sp_consensus_rrsc::{AllowedSlots, AuthorityId, RRSCEpochConfiguration};
+	use cessp_consensus_rrsc::{AllowedSlots, AuthorityId, RRSCEpochConfiguration};
 	use sp_core::{crypto::Pair as _, sr25519::Pair};
 	use std::sync::Arc;
 

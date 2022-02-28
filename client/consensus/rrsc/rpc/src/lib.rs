@@ -21,7 +21,7 @@
 use futures::{FutureExt, TryFutureExt};
 use jsonrpc_core::Error as RpcError;
 use jsonrpc_derive::rpc;
-use sc_consensus_rrsc::{authorship, Config, Epoch};
+use cessc_consensus_rrsc::{authorship, Config, Epoch};
 use sc_consensus_epochs::{descendent_query, Epoch as EpochT, SharedEpochChanges};
 use sc_rpc_api::DenyUnsafe;
 use serde::{Deserialize, Serialize};
@@ -29,7 +29,7 @@ use sp_api::{BlockId, ProvideRuntimeApi};
 use sp_application_crypto::AppKey;
 use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
 use sp_consensus::{Error as ConsensusError, SelectChain};
-use sp_consensus_rrsc::{digests::PreDigest, AuthorityId, RRSCApi as RRSCRuntimeApi};
+use cessp_consensus_rrsc::{digests::PreDigest, AuthorityId, RRSCApi as RRSCRuntimeApi};
 use sp_core::crypto::Public;
 use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
 use sp_runtime::traits::{Block as BlockT, Header as _};
@@ -225,7 +225,7 @@ mod tests {
 	};
 
 	use jsonrpc_core::IoHandler;
-	use sc_consensus_rrsc::{block_import, AuthorityPair, Config};
+	use cessc_consensus_rrsc::{block_import, AuthorityPair, Config};
 	use std::sync::Arc;
 
 	/// creates keystore backed by a temp file

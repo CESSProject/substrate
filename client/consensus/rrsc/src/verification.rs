@@ -23,7 +23,7 @@ use super::{
 };
 use log::{debug, trace};
 use sc_consensus_slots::CheckedHeader;
-use sp_consensus_rrsc::{
+use cessp_consensus_rrsc::{
 	digests::{
 		CompatibleDigestItem, PreDigest, PrimaryPreDigest, SecondaryPlainPreDigest,
 		SecondaryVRFPreDigest,

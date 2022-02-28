@@ -22,7 +22,7 @@ use super::ConsensusDataProvider;
 use crate::Error;
 use codec::Encode;
 use sc_client_api::{AuxStore, UsageProvider};
-use sc_consensus_rrsc::{
+use cessc_consensus_rrsc::{
 	authorship, find_pre_digest, RRSCIntermediate, CompatibleDigestItem, Config, Epoch,
 	INTERMEDIATE_KEY,
 };
@@ -40,7 +40,7 @@ use sc_consensus::{BlockImportParams, ForkChoiceStrategy, Verifier};
 use sp_api::{ProvideRuntimeApi, TransactionFor};
 use sp_blockchain::{HeaderBackend, HeaderMetadata};
 use sp_consensus::CacheKeyId;
-use sp_consensus_rrsc::{
+use cessp_consensus_rrsc::{
 	digests::{NextEpochDescriptor, PreDigest, SecondaryPlainPreDigest},
 	inherents::RRSCInherentData,
 	AuthorityId, RRSCApi, RRSCAuthorityWeight, ConsensusLog, RRSC_ENGINE_ID,
