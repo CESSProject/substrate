@@ -43,9 +43,11 @@ use sp_std::prelude::*;
 use cessp_consensus_rrsc::{
 	digests::{NextConfigDescriptor, NextEpochDescriptor, PreDigest},
 	RRSCAuthorityWeight, RRSCEpochConfiguration, ConsensusLog, Epoch, EquivocationProof, Slot,
-	RRSC_ENGINE_ID,
+	RRSC_ENGINE_ID, RRSC_VRF_PREFIX, make_transcript, make_transcript_data
 };
+use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
 use sp_consensus_vrf::schnorrkel;
+use sp_consensus_vrf::schnorrkel::{VRFOutput, VRFProof};
 
 pub use cessp_consensus_rrsc::{AuthorityId, PUBLIC_KEY_LENGTH, RANDOMNESS_LENGTH, VRF_OUTPUT_LENGTH};
 
@@ -176,6 +178,14 @@ pub mod pallet {
 		/// Max number of authorities allowed
 		#[pallet::constant]
 		type MaxAuthorities: Get<u32>;
+
+		/// Max number of primary authorities allowed
+		#[pallet::constant]
+		type MaxPrimaryAuthorities: Get<u32>;
+
+		/// Max number of secondary authorities allowed
+		#[pallet::constant]
+		type MaxSecondaryAuthorities: Get<u32>;
 	}
 
 	#[pallet::error]
@@ -243,6 +253,22 @@ pub mod pallet {
 	pub(super) type NextAuthorities<T: Config> = StorageValue<
 		_,
 		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxAuthorities>,
+		ValueQuery,
+	>;
+
+	#[pallet::storage]
+	#[pallet::getter(fn primary_epoch_authorities)]
+	pub type PrimaryEpochAuthorities<T: Config> = StorageValue<
+		_,
+		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities>,
+		ValueQuery,
+	>;
+
+	#[pallet::storage]
+	#[pallet::getter(fn secondary_epoch_authorities)]
+	pub type SecondaryEpochAuthorities<T: Config> = StorageValue<
+		_,
+		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities>,
 		ValueQuery,
 	>;
 
@@ -467,6 +493,148 @@ impl<T: Config> pallet_session::ShouldEndSession<T::BlockNumber> for Pallet<T> {
 	}
 }
 
+/// Calculates the primary selection threshold for a given authority, taking
+/// into account `c` (`1 - c` represents the probability of a slot being empty).
+pub(super) fn calculate_primary_threshold(
+	authorities: &[(AuthorityId, RRSCAuthorityWeight)],
+	authority_index: usize,
+) -> u128 {
+	use num_bigint::BigUint;
+	use num_rational::BigRational;
+	use num_traits::{cast::ToPrimitive, identities::One};
+
+	// TODO: c needs to change in the future. 
+	// It will be replaced by credit score of the authority
+	let c = (3, 10);
+	let c = c.0 as f64 / c.1 as f64;
+
+	let theta = authorities[authority_index].1 as f64 /
+		authorities.iter().map(|(_, weight)| weight).sum::<u64>() as f64;
+
+	assert!(theta > 0.0, "authority with weight 0.");
+
+	// NOTE: in the equation `p = 1 - (1 - c)^theta` the value of `p` is always
+	// capped by `c`. For all pratical purposes `c` should always be set to a
+	// value < 0.5, as such in the computations below we should never be near
+	// edge cases like `0.999999`.
+
+	let p = BigRational::from_float(1f64 - (1f64 - c).powf(theta)).expect(
+		"returns None when the given value is not finite; \
+		 c is a configuration parameter defined in (0, 1]; \
+		 theta must be > 0 if the given authority's weight is > 0; \
+		 theta represents the validator's relative weight defined in (0, 1]; \
+		 powf will always return values in (0, 1] given both the \
+		 base and exponent are in that domain; \
+		 qed.",
+	);
+
+	let numer = p.numer().to_biguint().expect(
+		"returns None when the given value is negative; \
+		 p is defined as `1 - n` where n is defined in (0, 1]; \
+		 p must be a value in [0, 1); \
+		 qed.",
+	);
+
+	let denom = p.denom().to_biguint().expect(
+		"returns None when the given value is negative; \
+		 p is defined as `1 - n` where n is defined in (0, 1]; \
+		 p must be a value in [0, 1); \
+		 qed.",
+	);
+
+	((BigUint::one() << 128) * numer / denom).to_u128().expect(
+		"returns None if the underlying value cannot be represented with 128 bits; \
+		 we start with 2^128 which is one more than can be represented with 128 bits; \
+		 we multiple by p which is defined in [0, 1); \
+		 the result must be lower than 2^128 by at least one and thus representable with 128 bits; \
+		 qed.",
+	)
+}
+
+fn check_vrf_threshold(inout: &VRFInOut, threshold: u128)-> bool {
+	u128::from_le_bytes(inout.make_bytes::<[u8; 16]>(RRSC_VRF_PREFIX)) < threshold
+}
+
+fn select_primary_authorities_for_epoch(
+	authorities: WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxAuthorities>,
+) -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities>{
+	let transcript = make_transcript(randomness, *epoch_index);
+	let transcript_data = make_transcript_data(randomness, *epoch_index);
+	let primary_authorities = WeakBoundedVec::<(AuthorityId, RRSCAuthorityWeight), T::MaxAuthorities>::new();
+
+	for ((authority_id, rrsc_authority_weight), authority_index) in authorities.iter().enumerate() {
+		let threshold = calculate_primary_threshold(authorities, *authority_index);
+
+		let result = SyncCryptoStore::sr25519_vrf_sign(
+			&**keystore,
+			AuthorityId::ID,
+			authority_id.as_ref(),
+			transcript_data,
+		);
+		if let Ok(Some(signature)) = result {
+			let public = PublicKey::from_bytes(&authority_id.to_raw_vec()).ok()?;
+			let inout = match signature.output.attach_input_hash(&public, transcript) {
+				Ok(inout) => inout,
+				Err(_) => continue,
+			};
+			if check_vrf_threshold(&inout, threshold) {
+				let pre_digest = PreDigest::Primary(PrimaryPreDigest {
+					slot,
+					vrf_output: VRFOutput(signature.output),
+					vrf_proof: VRFProof(signature.proof),
+					authority_index: *authority_index as u32,
+				});
+				primary_authorities.push((authority_id, rrsc_authority_weight));
+				//return Some((pre_digest, authority_id.clone()))
+				if primary_authorities.len() == 11 {
+					return primary_authorities;
+				}
+			}
+		}
+	}
+	None
+}
+
+fn select_secondary_authorities_for_epoch(
+	authorities: WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxAuthorities>,
+) -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities>{
+	let transcript = make_transcript(randomness, *epoch_index);
+	let transcript_data = make_transcript_data(randomness, *epoch_index);
+	let secondary_authorities = WeakBoundedVec::<(AuthorityId, RRSCAuthorityWeight), T::MaxAuthorities>::new();
+
+	for ((authority_id, rrsc_authority_weight), authority_index) in authorities.iter().enumerate() {
+		let threshold = calculate_primary_threshold(authorities, *authority_index);
+
+		let result = SyncCryptoStore::sr25519_vrf_sign(
+			&**keystore,
+			AuthorityId::ID,
+			authority_id.as_ref(),
+			transcript_data,
+		);
+		if let Ok(Some(signature)) = result {
+			let public = PublicKey::from_bytes(&authority_id.to_raw_vec()).ok()?;
+			let inout = match signature.output.attach_input_hash(&public, transcript) {
+				Ok(inout) => inout,
+				Err(_) => continue,
+			};
+			if check_vrf_threshold(&inout, threshold) {
+				let pre_digest = PreDigest::Primary(PrimaryPreDigest {
+					slot,
+					vrf_output: VRFOutput(signature.output),
+					vrf_proof: VRFProof(signature.proof),
+					authority_index: *authority_index as u32,
+				});
+				secondary_authorities.push((authority_id, rrsc_authority_weight));
+				//return Some((pre_digest, authority_id.clone()))
+				if secondary_authorities.len() == 11 {
+					return secondary_authorities;
+				}
+			}
+		}
+	}
+	None
+}
+
 impl<T: Config> Pallet<T> {
 	/// Determine the RRSC slot duration based on the Timestamp module configuration.
 	pub fn slot_duration() -> T::Moment {
@@ -535,7 +703,7 @@ impl<T: Config> Pallet<T> {
 			.expect("epoch indices will never reach 2^64 before the death of the universe; qed");
 
 		EpochIndex::<T>::put(epoch_index);
-		Authorities::<T>::put(authorities);
+		Authorities::<T>::put(authorities.clone());
 
 		// Update epoch randomness.
 		let next_epoch_index = epoch_index
@@ -577,6 +745,14 @@ impl<T: Config> Pallet<T> {
 
 			Self::deposit_consensus(ConsensusLog::NextConfigData(pending_epoch_config_change));
 		}
+
+		// Select 11 Primary authorities from the list of authorities
+		let primary_authorities = select_primary_authorities_for_epoch(authorities.clone());
+		PrimaryEpochAuthorities::<T>::put(primary_authorities);
+		// Select 11 secondary authorities from the list of authorities excluding the Primary Authorities
+
+		let secondary_authorities = select_secondary_authorities_for_epoch(authorities);
+		SecondaryEpochAuthorities::<T>::put(primary_authorities);
 	}
 
 	/// Finds the start slot of the current epoch. only guaranteed to
@@ -727,7 +903,6 @@ impl<T: Config> Pallet<T> {
 					.and_then(|pubkey| {
 						let transcript = cessp_consensus_rrsc::make_transcript(
 							&Self::randomness(),
-							current_slot,
 							EpochIndex::<T>::get(),
 						);
 
