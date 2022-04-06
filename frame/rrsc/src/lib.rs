@@ -215,7 +215,7 @@ pub mod pallet {
 	#[pallet::getter(fn primary_authorities)]
 	pub type PrimaryAuthorities<T: Config> = StorageValue<
 		_,
-		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities>,
+		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxAuthorities>,
 		ValueQuery,
 	>;
 
@@ -224,7 +224,7 @@ pub mod pallet {
 	#[pallet::getter(fn secondary_authorities)]
 	pub type SecondaryAuthorities<T: Config> = StorageValue<
 		_,
-		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities>,
+		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxAuthorities>,
 		ValueQuery,
 	>;
 
