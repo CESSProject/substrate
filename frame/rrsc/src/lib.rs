@@ -212,7 +212,7 @@ pub mod pallet {
 
 	/// Current epoch primary authorities.
 	#[pallet::storage]
-	#[pallet::getter(fn authorities)]
+	#[pallet::getter(fn primary_authorities)]
 	pub type PrimaryAuthorities<T: Config> = StorageValue<
 		_,
 		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities>,
@@ -221,7 +221,7 @@ pub mod pallet {
 
 	/// Current epoch secondary authorities.
 	#[pallet::storage]
-	#[pallet::getter(fn authorities)]
+	#[pallet::getter(fn secondary_authorities)]
 	pub type SecondaryAuthorities<T: Config> = StorageValue<
 		_,
 		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities>,
