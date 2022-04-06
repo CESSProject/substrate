@@ -176,6 +176,14 @@ pub mod pallet {
 		/// Max number of authorities allowed
 		#[pallet::constant]
 		type MaxAuthorities: Get<u32>;
+
+		/// Max number of primary authorities allowed
+		#[pallet::constant]
+		type MaxPrimaryAuthorities: Get<u32>;
+
+		/// Max number of secondary authorities allowed
+		#[pallet::constant]
+		type MaxSecondaryAuthorities: Get<u32>;
 	}
 
 	#[pallet::error]
@@ -199,6 +207,24 @@ pub mod pallet {
 	pub type Authorities<T: Config> = StorageValue<
 		_,
 		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxAuthorities>,
+		ValueQuery,
+	>;
+
+	/// Current epoch primary authorities.
+	#[pallet::storage]
+	#[pallet::getter(fn authorities)]
+	pub type PrimaryAuthorities<T: Config> = StorageValue<
+		_,
+		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities>,
+		ValueQuery,
+	>;
+
+	/// Current epoch secondary authorities.
+	#[pallet::storage]
+	#[pallet::getter(fn authorities)]
+	pub type SecondaryAuthorities<T: Config> = StorageValue<
+		_,
+		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities>,
 		ValueQuery,
 	>;
 
@@ -535,7 +561,7 @@ impl<T: Config> Pallet<T> {
 			.expect("epoch indices will never reach 2^64 before the death of the universe; qed");
 
 		EpochIndex::<T>::put(epoch_index);
-		Authorities::<T>::put(authorities);
+		Authorities::<T>::put(authorities.clone());
 
 		// Update epoch randomness.
 		let next_epoch_index = epoch_index
@@ -577,6 +603,13 @@ impl<T: Config> Pallet<T> {
 
 			Self::deposit_consensus(ConsensusLog::NextConfigData(pending_epoch_config_change));
 		}
+
+		// Primary Authorities participate in block generation during elected epoch
+		PrimaryAuthorities::<T>::put(authorities.clone());
+
+		// Secondary Authorities participate in block generation during elected epoch 
+		// if Primary Authority fails to generate block.
+		SecondaryAuthorities::<T>::put(authorities);
 	}
 
 	/// Finds the start slot of the current epoch. only guaranteed to
