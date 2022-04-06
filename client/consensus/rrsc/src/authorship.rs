@@ -138,7 +138,7 @@ fn claim_secondary_slot(
 	for (authority_id, authority_index) in keys {
 		if authority_id == expected_author {
 			let pre_digest = if author_secondary_vrf {
-				let transcript_data = make_transcript_data(randomness, *epoch_index);
+				let transcript_data = make_transcript_data(randomness, slot, *epoch_index);
 				let result = SyncCryptoStore::sr25519_vrf_sign(
 					&**keystore,
 					AuthorityId::ID,
@@ -233,8 +233,8 @@ fn claim_primary_slot(
 	let Epoch { authorities, randomness, epoch_index, .. } = epoch;
 
 	for (authority_id, authority_index) in keys {
-		let transcript = make_transcript(randomness, *epoch_index);
-		let transcript_data = make_transcript_data(randomness, *epoch_index);
+		let transcript = make_transcript(randomness, slot, *epoch_index);
+		let transcript_data = make_transcript_data(randomness, slot, *epoch_index);
 		// Compute the threshold we will use.
 		//
 		// We already checked that authorities contains `key.public()`, so it can't

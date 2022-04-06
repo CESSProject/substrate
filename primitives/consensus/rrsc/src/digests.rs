@@ -67,6 +67,9 @@ pub struct SecondaryVRFPreDigest {
 	pub vrf_proof: VRFProof,
 }
 
+/// A RRSC pre-runtime digest. This contains all data required to validate a
+/// block and for the RRSC runtime module. Slots can be assigned to a primary
+/// (VRF based) and to a secondary (slot number based).
 #[derive(Clone, RuntimeDebug, Encode, Decode)]
 pub enum PreDigest {
 	/// A primary VRF-based slot assignment.
@@ -101,7 +104,7 @@ impl PreDigest {
 
 	/// Returns the weight _added_ by this digest, not the cumulative weight
 	/// of the chain.
-	pub fn added_weight(&self) -> crate::BabeBlockWeight {
+	pub fn added_weight(&self) -> crate::RRSCBlockWeight {
 		match self {
 			PreDigest::Primary(_) => 1,
 			PreDigest::SecondaryPlain(_) | PreDigest::SecondaryVRF(_) => 0,
@@ -117,7 +120,6 @@ impl PreDigest {
 		}
 	}
 }
-
 
 /// Information about the next epoch. This is broadcast in the first block
 /// of the epoch.
@@ -175,12 +177,12 @@ pub trait CompatibleDigestItem: Sized {
 	fn as_next_config_descriptor(&self) -> Option<NextConfigDescriptor>;
 }
 
-impl<Signature, Hash> CompatibleDigestItem<Signature> for DigestItem<Hash>
+impl<Hash> CompatibleDigestItem for DigestItem<Hash>
 where
 	Hash: Send + Sync + Eq + Clone + Codec + 'static,
 {
 	fn rrsc_pre_digest(digest: PreDigest) -> Self {
-		DigestItem::PreRuntime(RRSC_ENGINE_ID, slot.encode())
+		DigestItem::PreRuntime(RRSC_ENGINE_ID, digest.encode())
 	}
 
 	fn as_rrsc_pre_digest(&self) -> Option<PreDigest> {
