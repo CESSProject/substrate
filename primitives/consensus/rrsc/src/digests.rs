@@ -67,6 +67,57 @@ pub struct SecondaryVRFPreDigest {
 	pub vrf_proof: VRFProof,
 }
 
+#[derive(Clone, RuntimeDebug, Encode, Decode)]
+pub enum PreDigest {
+	/// A primary VRF-based slot assignment.
+	#[codec(index = 1)]
+	Primary(PrimaryPreDigest),
+	/// A secondary deterministic slot assignment.
+	#[codec(index = 2)]
+	SecondaryPlain(SecondaryPlainPreDigest),
+	/// A secondary deterministic slot assignment with VRF outputs.
+	#[codec(index = 3)]
+	SecondaryVRF(SecondaryVRFPreDigest),
+}
+
+impl PreDigest {
+	/// Returns the slot number of the pre digest.
+	pub fn authority_index(&self) -> AuthorityIndex {
+		match self {
+			PreDigest::Primary(primary) => primary.authority_index,
+			PreDigest::SecondaryPlain(secondary) => secondary.authority_index,
+			PreDigest::SecondaryVRF(secondary) => secondary.authority_index,
+		}
+	}
+
+	/// Returns the slot of the pre digest.
+	pub fn slot(&self) -> Slot {
+		match self {
+			PreDigest::Primary(primary) => primary.slot,
+			PreDigest::SecondaryPlain(secondary) => secondary.slot,
+			PreDigest::SecondaryVRF(secondary) => secondary.slot,
+		}
+	}
+
+	/// Returns the weight _added_ by this digest, not the cumulative weight
+	/// of the chain.
+	pub fn added_weight(&self) -> crate::BabeBlockWeight {
+		match self {
+			PreDigest::Primary(_) => 1,
+			PreDigest::SecondaryPlain(_) | PreDigest::SecondaryVRF(_) => 0,
+		}
+	}
+
+	/// Returns the VRF output, if it exists.
+	pub fn vrf_output(&self) -> Option<&VRFOutput> {
+		match self {
+			PreDigest::Primary(primary) => Some(&primary.vrf_output),
+			PreDigest::SecondaryVRF(secondary) => Some(&secondary.vrf_output),
+			PreDigest::SecondaryPlain(_) => None,
+		}
+	}
+}
+
 
 /// Information about the next epoch. This is broadcast in the first block
 /// of the epoch.
@@ -128,11 +179,11 @@ impl<Signature, Hash> CompatibleDigestItem<Signature> for DigestItem<Hash>
 where
 	Hash: Send + Sync + Eq + Clone + Codec + 'static,
 {
-	fn rrsc_pre_digest(slot: Slot) -> Self {
+	fn rrsc_pre_digest(digest: PreDigest) -> Self {
 		DigestItem::PreRuntime(RRSC_ENGINE_ID, slot.encode())
 	}
 
-	fn as_rrsc_pre_digest(&self) -> Option<Slot> {
+	fn as_rrsc_pre_digest(&self) -> Option<PreDigest> {
 		self.pre_runtime_try_to(&RRSC_ENGINE_ID)
 	}
 
