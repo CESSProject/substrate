@@ -878,12 +878,12 @@ impl<T: Config> Pallet<T> {
 
 	fn select_primary_authorities() -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities> {
 		WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(<Pallet<T>>::authorities().to_vec())
-				.expect("Initial number of authorities should be lower than T::MaxPrimaryAuthorities");
+				.expect("Initial number of authorities should be lower than T::MaxPrimaryAuthorities")
 	}
 	
 	fn select_secondary_authorities() -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities> {
 		WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(<Pallet<T>>::authorities().to_vec())
-				.expect("Initial number of authorities should be lower than T::MaxSecondaryAuthorities");
+				.expect("Initial number of authorities should be lower than T::MaxSecondaryAuthorities")
 	}
 }
 
