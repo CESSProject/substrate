@@ -606,12 +606,12 @@ impl<T: Config> Pallet<T> {
 
 		// Primary Authorities participate in block generation during elected epoch
 		
-		let primary_authorities = select_primary_authorities();
+		let primary_authorities = Self::select_primary_authorities();
 		PrimaryAuthorities::<T>::put(primary_authorities);
 
 		// Secondary Authorities participate in block generation during elected epoch 
 		// if Primary Authority fails to generate block.
-		let secondary_authorities = select_secondary_authorities();
+		let secondary_authorities = Self::select_secondary_authorities();
 		SecondaryAuthorities::<T>::put(secondary_authorities);
 	}
 
