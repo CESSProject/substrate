@@ -875,6 +875,16 @@ impl<T: Config> Pallet<T> {
 		)
 		.ok()
 	}
+
+	fn select_primary_authorities() -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities> {
+		WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(<Pallet<T>>::authorities().to_vec())
+				.expect("Initial number of authorities should be lower than T::MaxPrimaryAuthorities");
+	}
+	
+	fn select_secondary_authorities() -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities> {
+		WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(<Pallet<T>>::authorities().to_vec())
+				.expect("Initial number of authorities should be lower than T::MaxSecondaryAuthorities");
+	}
 }
 
 impl<T: Config> OnTimestampSet<T::Moment> for Pallet<T> {
@@ -1033,14 +1043,4 @@ pub mod migrations {
 
 		T::DbWeight::get().writes(writes) + T::DbWeight::get().reads(reads)
 	}
-}
-
-fn select_primary_authorities() -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities> {
-	WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(<Pallet<T>>::authorities().to_vec())
-			.expect("Initial number of authorities should be lower than T::MaxPrimaryAuthorities");
-}
-
-fn select_secondary_authorities() -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities> {
-	WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(<Pallet<T>>::authorities().to_vec())
-			.expect("Initial number of authorities should be lower than T::MaxSecondaryAuthorities");
 }
