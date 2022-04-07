@@ -606,14 +606,12 @@ impl<T: Config> Pallet<T> {
 
 		// Primary Authorities participate in block generation during elected epoch
 		
-		let primary_authorities = WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(Self::authorities().to_vec())
-			.expect("Initial number of authorities should be lower than T::MaxPrimaryAuthorities");
+		let primary_authorities = select_primary_authorities();
 		PrimaryAuthorities::<T>::put(primary_authorities);
 
 		// Secondary Authorities participate in block generation during elected epoch 
 		// if Primary Authority fails to generate block.
-		let secondary_authorities = WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(Self::authorities().to_vec())
-			.expect("Initial number of authorities should be lower than T::MaxSecondaryAuthorities");
+		let secondary_authorities = select_secondary_authorities();
 		SecondaryAuthorities::<T>::put(secondary_authorities);
 	}
 
@@ -1035,4 +1033,14 @@ pub mod migrations {
 
 		T::DbWeight::get().writes(writes) + T::DbWeight::get().reads(reads)
 	}
+}
+
+fn select_primary_authorities() -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities> {
+	WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(<Pallet<T>>::authorities().to_vec())
+			.expect("Initial number of authorities should be lower than T::MaxPrimaryAuthorities");
+}
+
+fn select_secondary_authorities() -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities> {
+	WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(<Pallet<T>>::authorities().to_vec())
+			.expect("Initial number of authorities should be lower than T::MaxSecondaryAuthorities");
 }
