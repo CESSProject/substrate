@@ -215,7 +215,7 @@ pub mod pallet {
 	#[pallet::getter(fn primary_authorities)]
 	pub type PrimaryAuthorities<T: Config> = StorageValue<
 		_,
-		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxAuthorities>,
+		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities>,
 		ValueQuery,
 	>;
 
@@ -224,7 +224,7 @@ pub mod pallet {
 	#[pallet::getter(fn secondary_authorities)]
 	pub type SecondaryAuthorities<T: Config> = StorageValue<
 		_,
-		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxAuthorities>,
+		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities>,
 		ValueQuery,
 	>;
 
@@ -605,11 +605,13 @@ impl<T: Config> Pallet<T> {
 		}
 
 		// Primary Authorities participate in block generation during elected epoch
-		PrimaryAuthorities::<T>::put(authorities.clone());
+		let primary_authorities = Self::authorities().to_vec();
+		PrimaryAuthorities::<T>::put(primary_authorities);
 
 		// Secondary Authorities participate in block generation during elected epoch 
 		// if Primary Authority fails to generate block.
-		SecondaryAuthorities::<T>::put(authorities);
+		let secondary_authorities = Self::authorities().to_vec();
+		SecondaryAuthorities::<T>::put(secondary_authorities);
 	}
 
 	/// Finds the start slot of the current epoch. only guaranteed to
