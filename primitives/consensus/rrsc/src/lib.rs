@@ -158,6 +158,10 @@ pub struct RRSCGenesisConfigurationV1 {
 	/// The authorities for the genesis epoch.
 	pub genesis_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
 
+	pub genesis_primary_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
+
+	pub genesis_secondary_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>, 
+
 	/// The randomness for the genesis epoch.
 	pub randomness: Randomness,
 
