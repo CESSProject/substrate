@@ -70,6 +70,8 @@ impl EpochV0 {
 			start_slot: self.start_slot,
 			duration: self.duration,
 			authorities: self.authorities,
+			primary_authorities: self.primary_authorities,
+			secondary_authorities: self.secondary_authorities,
 			randomness: self.randomness,
 			config: RRSCEpochConfiguration { c: config.c, allowed_slots: config.allowed_slots },
 		}

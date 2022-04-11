@@ -176,6 +176,8 @@ impl EpochT for Epoch {
 			start_slot: self.start_slot + self.duration,
 			duration: self.duration,
 			authorities: descriptor.authorities,
+			primary_authorities: descriptor.primary_authorities,
+			secondary_authorities: descriptor.secondary_authorities,
 			randomness: descriptor.randomness,
 			config,
 		}
@@ -197,6 +199,8 @@ impl From<cessp_consensus_rrsc::Epoch> for Epoch {
 			start_slot: epoch.start_slot,
 			duration: epoch.duration,
 			authorities: epoch.authorities,
+			primary_authorities: epoch.primary_authorities,
+			secondary_authorities: epoch.secondary_authorities,
 			randomness: epoch.randomness,
 			config: epoch.config,
 		}
@@ -578,6 +582,8 @@ async fn answer_requests<B: BlockT, C>(
 						start_slot: viable_epoch.as_ref().start_slot,
 						duration: viable_epoch.as_ref().duration,
 						authorities: viable_epoch.as_ref().authorities.clone(),
+						primary_authorities: viable_epoch.as_ref().primary_authorities.clone(),
+						secondary_authorities: viable_epoch.as_ref().secondary_authorities.clone(),
 						randomness: viable_epoch.as_ref().randomness,
 						config: viable_epoch.as_ref().config.clone(),
 					})
