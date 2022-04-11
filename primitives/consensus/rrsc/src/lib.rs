@@ -173,6 +173,8 @@ impl From<RRSCGenesisConfigurationV1> for RRSCGenesisConfiguration {
 			epoch_length: v1.epoch_length,
 			c: v1.c,
 			genesis_authorities: v1.genesis_authorities,
+			genesis_primary_authorities: v1.genesis_primary_authorities,
+			genesis_secondary_authorities: v1.genesis_secondary_authorities,
 			randomness: v1.randomness,
 			allowed_slots: if v1.secondary_slots {
 				AllowedSlots::PrimaryAndSecondaryPlainSlots
@@ -205,6 +207,10 @@ pub struct RRSCGenesisConfiguration {
 
 	/// The authorities for the genesis epoch.
 	pub genesis_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
+
+	pub genesis_primary_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
+
+	pub genesis_secondary_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
 
 	/// The randomness for the genesis epoch.
 	pub randomness: Randomness,

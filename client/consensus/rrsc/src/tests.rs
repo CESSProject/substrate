@@ -578,6 +578,8 @@ fn can_author_block() {
 		epoch_length: 100,
 		c: (3, 10),
 		genesis_authorities: Vec::new(),
+		genesis_primary_authorities: Vec::new(),
+		genesis_secondary_authorities: Vec::new(),
 		randomness: [0; 32],
 		allowed_slots: AllowedSlots::PrimaryAndSecondaryPlainSlots,
 	};

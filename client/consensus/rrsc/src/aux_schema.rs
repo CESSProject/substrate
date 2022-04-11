@@ -145,6 +145,8 @@ mod test {
 		let epoch = EpochV0 {
 			start_slot: 0.into(),
 			authorities: vec![],
+			primary_authorities: vec![],
+			secondary_authorities: vec![],
 			randomness: [0; 32],
 			epoch_index: 1,
 			duration: 100,

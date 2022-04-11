@@ -216,6 +216,8 @@ impl Epoch {
 			start_slot: slot,
 			duration: genesis_config.epoch_length,
 			authorities: genesis_config.genesis_authorities.clone(),
+			primary_authorities: genesis_config.genesis_primary_authorities.clone(),
+			secondary_authorities: genesis_config.genesis_secondary_authorities.clone(),
 			randomness: genesis_config.randomness,
 			config: RRSCEpochConfiguration {
 				c: genesis_config.c,
