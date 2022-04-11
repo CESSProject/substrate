@@ -588,12 +588,12 @@ impl<T: Config> Pallet<T> {
 
 		// Primary Authorities participate in block generation during elected epoch
 		let primary_authorities = Self::select_primary_authorities();
-		PrimaryAuthorities::<T>::put(primary_authorities);
+		PrimaryAuthorities::<T>::put(primary_authorities.clone());
 
 		// Secondary Authorities participate in block generation during elected epoch 
 		// if Primary Authority fails to generate block.
 		let secondary_authorities = Self::select_secondary_authorities();
-		SecondaryAuthorities::<T>::put(secondary_authorities);
+		SecondaryAuthorities::<T>::put(secondary_authorities.clone());
 
 		let next_epoch = NextEpochDescriptor {
 			authorities: next_authorities.to_vec(),
