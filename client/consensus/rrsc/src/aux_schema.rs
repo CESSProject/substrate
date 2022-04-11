@@ -181,6 +181,8 @@ mod test {
 				epoch_length: 4,
 				c: (3, 10),
 				genesis_authorities: Vec::new(),
+				genesis_primary_authorities: Vec::new(),
+				genesis_secondary_authorities: Vec::new(),
 				randomness: Default::default(),
 				allowed_slots: AllowedSlots::PrimaryAndSecondaryPlainSlots,
 			},
