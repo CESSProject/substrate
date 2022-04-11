@@ -35,6 +35,10 @@ pub struct EpochV0 {
 	pub duration: u64,
 	/// The authorities and their weights.
 	pub authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
+
+	pub primary_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
+
+	pub secondary_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
 	/// Randomness for this epoch.
 	pub randomness: [u8; VRF_OUTPUT_LENGTH],
 }
@@ -49,6 +53,8 @@ impl EpochT for EpochV0 {
 			start_slot: self.start_slot + self.duration,
 			duration: self.duration,
 			authorities: descriptor.authorities,
+			primary_authorities: descriptor.primary_authorities,
+			secondary_authorities: descriptor.secondary_authorities,
 			randomness: descriptor.randomness,
 		}
 	}
