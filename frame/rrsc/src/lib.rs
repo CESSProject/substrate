@@ -652,6 +652,8 @@ impl<T: Config> Pallet<T> {
 			start_slot: Self::epoch_start(next_epoch_index),
 			duration: T::EpochDuration::get(),
 			authorities: NextAuthorities::<T>::get().to_vec(),
+			primary_authorities: Vec::new(),
+			secondary_authorities: Vec::new(),
 			randomness: NextRandomness::<T>::get(),
 			config: NextEpochConfig::<T>::get().unwrap_or_else(|| {
 				EpochConfig::<T>::get().expect(
