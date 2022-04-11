@@ -586,8 +586,19 @@ impl<T: Config> Pallet<T> {
 		// so that nodes can track changes.
 		let next_randomness = NextRandomness::<T>::get();
 
+		// Primary Authorities participate in block generation during elected epoch
+		let primary_authorities = Self::select_primary_authorities();
+		PrimaryAuthorities::<T>::put(primary_authorities);
+
+		// Secondary Authorities participate in block generation during elected epoch 
+		// if Primary Authority fails to generate block.
+		let secondary_authorities = Self::select_secondary_authorities();
+		SecondaryAuthorities::<T>::put(secondary_authorities);
+
 		let next_epoch = NextEpochDescriptor {
 			authorities: next_authorities.to_vec(),
+			primary_authorities: primary_authorities.to_vec(),
+			secondary_authorities: secondary_authorities.to_vec(),
 			randomness: next_randomness,
 		};
 		Self::deposit_consensus(ConsensusLog::NextEpochData(next_epoch));
@@ -604,15 +615,6 @@ impl<T: Config> Pallet<T> {
 			Self::deposit_consensus(ConsensusLog::NextConfigData(pending_epoch_config_change));
 		}
 
-		// Primary Authorities participate in block generation during elected epoch
-		
-		let primary_authorities = Self::select_primary_authorities();
-		PrimaryAuthorities::<T>::put(primary_authorities);
-
-		// Secondary Authorities participate in block generation during elected epoch 
-		// if Primary Authority fails to generate block.
-		let secondary_authorities = Self::select_secondary_authorities();
-		SecondaryAuthorities::<T>::put(secondary_authorities);
 	}
 
 	/// Finds the start slot of the current epoch. only guaranteed to
@@ -629,6 +631,8 @@ impl<T: Config> Pallet<T> {
 			start_slot: Self::current_epoch_start(),
 			duration: T::EpochDuration::get(),
 			authorities: Self::authorities().to_vec(),
+			primary_authorities: Self::primary_authorities().to_vec(),
+			secondary_authorities: Self::secondary_authorities().to_vec(),
 			randomness: Self::randomness(),
 			config: EpochConfig::<T>::get()
 				.expect("EpochConfig is initialized in genesis; we never `take` or `kill` it; qed"),
@@ -729,6 +733,8 @@ impl<T: Config> Pallet<T> {
 				// randomness yet.
 				let next = NextEpochDescriptor {
 					authorities: Self::authorities().to_vec(),
+					primary_authorities: Self::primary_authorities().to_vec(),
+					secondary_authorities: Self::secondary_authorities().to_vec(),
 					randomness: Self::randomness(),
 				};
 
@@ -878,12 +884,12 @@ impl<T: Config> Pallet<T> {
 
 	fn select_primary_authorities() -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities> {
 		WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(Self::authorities().to_vec())
-				.expect("Initial number of authorities should be lower than T::MaxPrimaryAuthorities")
+				.expect("Initial number of primary authorities should be lower than T::MaxPrimaryAuthorities")
 	}
 	
 	fn select_secondary_authorities() -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities> {
 		WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(Self::authorities().to_vec())
-				.expect("Initial number of authorities should be lower than T::MaxSecondaryAuthorities")
+				.expect("Initial number of secondary authorities should be lower than T::MaxSecondaryAuthorities")
 	}
 }
 

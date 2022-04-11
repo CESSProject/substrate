@@ -356,6 +356,10 @@ pub struct Epoch {
 	pub duration: u64,
 	/// The authorities and their weights.
 	pub authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
+	/// The primary authorities who participate in primary consensus
+	pub primary_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
+	/// The secondary authorities who participate in consensus in case primary fails to generate block
+	pub secondary_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
 	/// Randomness for this epoch.
 	pub randomness: [u8; VRF_OUTPUT_LENGTH],
 	/// Configuration of the epoch.
