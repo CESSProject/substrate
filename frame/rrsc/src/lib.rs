@@ -43,7 +43,7 @@ use sp_std::prelude::*;
 use cessp_consensus_rrsc::{
 	digests::{NextConfigDescriptor, NextEpochDescriptor, PreDigest},
 	RRSCAuthorityWeight, RRSCEpochConfiguration, ConsensusLog, Epoch, EquivocationProof, Slot,
-	RRSC_ENGINE_ID, make_transcript, make_transcript_data
+	RRSC_ENGINE_ID,
 };
 use sp_consensus_vrf::schnorrkel;
 
