@@ -48,7 +48,7 @@ use cessp_consensus_rrsc::{
 
 use schnorrkel::{keys::PublicKey, vrf::VRFInOut};
 
-use sp_consensus_vrf::schnorrkel;
+use sp_consensus_vrf::schnorrkel::{Randomness, PublicKey};
 
 pub use cessp_consensus_rrsc::{AuthorityId, PUBLIC_KEY_LENGTH, RANDOMNESS_LENGTH, VRF_OUTPUT_LENGTH};
 
@@ -109,7 +109,7 @@ impl EpochChangeTrigger for SameAuthoritiesForever {
 
 const UNDER_CONSTRUCTION_SEGMENT_LENGTH: u32 = 256;
 
-type MaybeRandomness = Option<schnorrkel::Randomness>;
+type MaybeRandomness = Option<Randomness>;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -259,7 +259,7 @@ pub mod pallet {
 	// variable to its underlying value.
 	#[pallet::storage]
 	#[pallet::getter(fn randomness)]
-	pub type Randomness<T> = StorageValue<_, schnorrkel::Randomness, ValueQuery>;
+	pub type Randomness<T> = StorageValue<_, Randomness, ValueQuery>;
 
 	/// Pending epoch configuration change that will be applied when the next epoch is enacted.
 	#[pallet::storage]
@@ -267,7 +267,7 @@ pub mod pallet {
 
 	/// Next epoch randomness.
 	#[pallet::storage]
-	pub(super) type NextRandomness<T> = StorageValue<_, schnorrkel::Randomness, ValueQuery>;
+	pub(super) type NextRandomness<T> = StorageValue<_, Randomness, ValueQuery>;
 
 	/// Next epoch authorities.
 	#[pallet::storage]
@@ -295,7 +295,7 @@ pub mod pallet {
 		_,
 		Twox64Concat,
 		u32,
-		BoundedVec<schnorrkel::Randomness, ConstU32<UNDER_CONSTRUCTION_SEGMENT_LENGTH>>,
+		BoundedVec<Randomness, ConstU32<UNDER_CONSTRUCTION_SEGMENT_LENGTH>>,
 		ValueQuery,
 	>;
 
@@ -684,7 +684,7 @@ impl<T: Config> Pallet<T> {
 		<frame_system::Pallet<T>>::deposit_log(log.into())
 	}
 
-	fn deposit_randomness(randomness: &schnorrkel::Randomness) {
+	fn deposit_randomness(randomness: &Randomness) {
 		let segment_idx = SegmentIndex::<T>::get();
 		let mut segment = UnderConstruction::<T>::get(&segment_idx);
 		if segment.try_push(*randomness).is_ok() {
@@ -772,7 +772,7 @@ impl<T: Config> Pallet<T> {
 				// Reconstruct the bytes of VRFInOut using the authority id.
 				Authorities::<T>::get()
 					.get(authority_index as usize)
-					.and_then(|author| schnorrkel::PublicKey::from_bytes(author.0.as_slice()).ok())
+					.and_then(|author| PublicKey::from_bytes(author.0.as_slice()).ok())
 					.and_then(|pubkey| {
 						let transcript = cessp_consensus_rrsc::make_transcript(
 							&Self::randomness(),
@@ -800,7 +800,7 @@ impl<T: Config> Pallet<T> {
 
 	/// Call this function exactly once when an epoch changes, to update the
 	/// randomness. Returns the new randomness.
-	fn randomness_change_epoch(next_epoch_index: u64) -> schnorrkel::Randomness {
+	fn randomness_change_epoch(next_epoch_index: u64) -> Randomness {
 		let this_randomness = NextRandomness::<T>::get();
 		let segment_idx: u32 = SegmentIndex::<T>::mutate(|s| sp_std::mem::replace(s, 0));
 
@@ -1054,11 +1054,11 @@ impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 //
 // an optional size hint as to how many VRF outputs there were may be provided.
 fn compute_randomness(
-	last_epoch_randomness: schnorrkel::Randomness,
+	last_epoch_randomness: Randomness,
 	epoch_index: u64,
-	rho: impl Iterator<Item = schnorrkel::Randomness>,
+	rho: impl Iterator<Item = Randomness>,
 	rho_size_hint: Option<usize>,
-) -> schnorrkel::Randomness {
+) -> Randomness {
 	let mut s = Vec::with_capacity(40 + rho_size_hint.unwrap_or(0) * VRF_OUTPUT_LENGTH);
 	s.extend_from_slice(&last_epoch_randomness);
 	s.extend_from_slice(&epoch_index.to_le_bytes());
