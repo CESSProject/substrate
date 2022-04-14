@@ -128,8 +128,10 @@ pub struct NextEpochDescriptor {
 	/// The authorities.
 	pub authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
 
+	/// Epoch primary authorities for RRSC
 	pub primary_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
 
+	/// Epoch secondary authorities for RRSC
 	pub secondary_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
 	
 	/// The value of randomness to use for the slot-assignment.
