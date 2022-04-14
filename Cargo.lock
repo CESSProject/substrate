@@ -5877,7 +5877,6 @@ dependencies = [
  "pallet-timestamp",
  "parity-scale-codec",
  "scale-info",
- "schnorrkel",
  "sp-application-crypto",
  "sp-consensus-vrf",
  "sp-core",
