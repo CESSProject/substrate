@@ -5868,6 +5868,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "log 0.4.14",
+ "num-bigint",
  "pallet-authorship",
  "pallet-balances",
  "pallet-offences",
