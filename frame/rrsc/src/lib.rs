@@ -46,8 +46,6 @@ use cessp_consensus_rrsc::{
 	RRSC_ENGINE_ID, RRSC_VRF_PREFIX
 };
 
-use schnorrkel::{keys::PublicKey, vrf::VRFInOut};
-
 use sp_consensus_vrf::schnorrkel as sp_schnorrkel;
 
 pub use cessp_consensus_rrsc::{AuthorityId, PUBLIC_KEY_LENGTH, RANDOMNESS_LENGTH, VRF_OUTPUT_LENGTH};
