@@ -45,7 +45,11 @@ use cessp_consensus_rrsc::{
 	RRSCAuthorityWeight, RRSCEpochConfiguration, ConsensusLog, Epoch, EquivocationProof, Slot,
 	RRSC_ENGINE_ID,
 };
-use sp_consensus_vrf::schnorrkel;
+use sp_consensus_vrf::schnorrkel as sp_schnorrkel;
+
+use schnorrkel::{keys::PublicKey, vrf::VRFInOut};
+
+use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
 
 pub use cessp_consensus_rrsc::{AuthorityId, PUBLIC_KEY_LENGTH, RANDOMNESS_LENGTH, VRF_OUTPUT_LENGTH};
 
@@ -104,7 +108,7 @@ impl EpochChangeTrigger for SameAuthoritiesForever {
 
 const UNDER_CONSTRUCTION_SEGMENT_LENGTH: u32 = 256;
 
-type MaybeRandomness = Option<schnorrkel::Randomness>;
+type MaybeRandomness = Option<sp_schnorrkel::Randomness>;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -254,7 +258,7 @@ pub mod pallet {
 	// variable to its underlying value.
 	#[pallet::storage]
 	#[pallet::getter(fn randomness)]
-	pub type Randomness<T> = StorageValue<_, schnorrkel::Randomness, ValueQuery>;
+	pub type Randomness<T> = StorageValue<_, sp_schnorrkel::Randomness, ValueQuery>;
 
 	/// Pending epoch configuration change that will be applied when the next epoch is enacted.
 	#[pallet::storage]
@@ -262,7 +266,7 @@ pub mod pallet {
 
 	/// Next epoch randomness.
 	#[pallet::storage]
-	pub(super) type NextRandomness<T> = StorageValue<_, schnorrkel::Randomness, ValueQuery>;
+	pub(super) type NextRandomness<T> = StorageValue<_, sp_schnorrkel::Randomness, ValueQuery>;
 
 	/// Next epoch authorities.
 	#[pallet::storage]
@@ -290,7 +294,7 @@ pub mod pallet {
 		_,
 		Twox64Concat,
 		u32,
-		BoundedVec<schnorrkel::Randomness, ConstU32<UNDER_CONSTRUCTION_SEGMENT_LENGTH>>,
+		BoundedVec<sp_schnorrkel::Randomness, ConstU32<UNDER_CONSTRUCTION_SEGMENT_LENGTH>>,
 		ValueQuery,
 	>;
 
@@ -679,7 +683,7 @@ impl<T: Config> Pallet<T> {
 		<frame_system::Pallet<T>>::deposit_log(log.into())
 	}
 
-	fn deposit_randomness(randomness: &schnorrkel::Randomness) {
+	fn deposit_randomness(randomness: &sp_schnorrkel::Randomness) {
 		let segment_idx = SegmentIndex::<T>::get();
 		let mut segment = UnderConstruction::<T>::get(&segment_idx);
 		if segment.try_push(*randomness).is_ok() {
@@ -767,7 +771,7 @@ impl<T: Config> Pallet<T> {
 				// Reconstruct the bytes of VRFInOut using the authority id.
 				Authorities::<T>::get()
 					.get(authority_index as usize)
-					.and_then(|author| schnorrkel::PublicKey::from_bytes(author.0.as_slice()).ok())
+					.and_then(|author| sp_schnorrkel::PublicKey::from_bytes(author.0.as_slice()).ok())
 					.and_then(|pubkey| {
 						let transcript = cessp_consensus_rrsc::make_transcript(
 							&Self::randomness(),
@@ -796,7 +800,7 @@ impl<T: Config> Pallet<T> {
 
 	/// Call this function exactly once when an epoch changes, to update the
 	/// randomness. Returns the new randomness.
-	fn randomness_change_epoch(next_epoch_index: u64) -> schnorrkel::Randomness {
+	fn randomness_change_epoch(next_epoch_index: u64) -> sp_schnorrkel::Randomness {
 		let this_randomness = NextRandomness::<T>::get();
 		let segment_idx: u32 = SegmentIndex::<T>::mutate(|s| sp_std::mem::replace(s, 0));
 
@@ -892,6 +896,60 @@ impl<T: Config> Pallet<T> {
 	fn select_secondary_authorities() -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities> {
 		WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(Self::authorities().to_vec())
 				.expect("Initial number of secondary authorities should be lower than T::MaxSecondaryAuthorities")
+	}
+
+	fn calculate_primary_threshold(
+		authorities: &[(AuthorityId, RRSCAuthorityWeight)],
+		authority_index: usize,
+	) -> u128 {
+		use num_bigint::BigUint;
+		use num_rational::BigRational;
+		use num_traits::{cast::ToPrimitive, identities::One};
+	
+		// TODO: Replace in future with authority credit score
+		let c = 3 as f64 / 10 as f64;
+	
+		let theta = authorities[authority_index].1 as f64 /
+			authorities.iter().map(|(_, weight)| weight).sum::<u64>() as f64;
+	
+		assert!(theta > 0.0, "authority with weight 0.");
+	
+		// NOTE: in the equation `p = 1 - (1 - c)^theta` the value of `p` is always
+		// capped by `c`. For all pratical purposes `c` should always be set to a
+		// value < 0.5, as such in the computations below we should never be near
+		// edge cases like `0.999999`.
+	
+		let p = BigRational::from_float(1f64 - (1f64 - c).powf(theta)).expect(
+			"returns None when the given value is not finite; \
+			 c is a configuration parameter defined in (0, 1]; \
+			 theta must be > 0 if the given authority's weight is > 0; \
+			 theta represents the validator's relative weight defined in (0, 1]; \
+			 powf will always return values in (0, 1] given both the \
+			 base and exponent are in that domain; \
+			 qed.",
+		);
+	
+		let numer = p.numer().to_biguint().expect(
+			"returns None when the given value is negative; \
+			 p is defined as `1 - n` where n is defined in (0, 1]; \
+			 p must be a value in [0, 1); \
+			 qed.",
+		);
+	
+		let denom = p.denom().to_biguint().expect(
+			"returns None when the given value is negative; \
+			 p is defined as `1 - n` where n is defined in (0, 1]; \
+			 p must be a value in [0, 1); \
+			 qed.",
+		);
+	
+		((BigUint::one() << 128) * numer / denom).to_u128().expect(
+			"returns None if the underlying value cannot be represented with 128 bits; \
+			 we start with 2^128 which is one more than can be represented with 128 bits; \
+			 we multiple by p which is defined in [0, 1); \
+			 the result must be lower than 2^128 by at least one and thus representable with 128 bits; \
+			 qed.",
+		)
 	}
 }
 
@@ -990,11 +1048,11 @@ impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 //
 // an optional size hint as to how many VRF outputs there were may be provided.
 fn compute_randomness(
-	last_epoch_randomness: schnorrkel::Randomness,
+	last_epoch_randomness: sp_schnorrkel::Randomness,
 	epoch_index: u64,
-	rho: impl Iterator<Item = schnorrkel::Randomness>,
+	rho: impl Iterator<Item = sp_schnorrkel::Randomness>,
 	rho_size_hint: Option<usize>,
-) -> schnorrkel::Randomness {
+) -> sp_schnorrkel::Randomness {
 	let mut s = Vec::with_capacity(40 + rho_size_hint.unwrap_or(0) * VRF_OUTPUT_LENGTH);
 	s.extend_from_slice(&last_epoch_randomness);
 	s.extend_from_slice(&epoch_index.to_le_bytes());

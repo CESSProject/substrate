@@ -332,14 +332,14 @@ pub fn make_secondary_plain_pre_digest(
 
 pub fn make_secondary_vrf_pre_digest(
 	authority_index: cessp_consensus_rrsc::AuthorityIndex,
-	slot: cessp_consensus_rrsc::Slot,
+	//slot: cessp_consensus_rrsc::Slot,
 	vrf_output: VRFOutput,
 	vrf_proof: VRFProof,
 ) -> Digest {
 	let digest_data = cessp_consensus_rrsc::digests::PreDigest::SecondaryVRF(
 		cessp_consensus_rrsc::digests::SecondaryVRFPreDigest {
 			authority_index,
-			slot,
+			//slot,
 			vrf_output,
 			vrf_proof,
 		},
