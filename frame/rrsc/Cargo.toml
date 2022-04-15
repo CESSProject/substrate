@@ -23,7 +23,6 @@ pallet-session = { version = "4.0.0-dev", default-features = false, path = "../s
 pallet-timestamp = { version = "4.0.0-dev", default-features = false, path = "../timestamp" }
 sp-application-crypto = { version = "4.0.0-dev", default-features = false, path = "../../primitives/application-crypto" }
 cessp-consensus-rrsc = { version = "0.10.0-dev", default-features = false, path = "../../primitives/consensus/rrsc" }
-cessc-consensus-rrsc = { version = "0.10.0-dev", default-features = false, path = "../../client/consensus/rrsc" }
 sp-consensus-vrf = { version = "0.10.0-dev", default-features = false, path = "../../primitives/consensus/vrf" }
 sp-io = { version = "4.0.0-dev", default-features = false, path = "../../primitives/io" }
 sp-runtime = { version = "4.0.0-dev", default-features = false, path = "../../primitives/runtime" }
