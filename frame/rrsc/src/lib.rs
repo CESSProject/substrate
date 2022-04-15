@@ -47,6 +47,8 @@ use cessp_consensus_rrsc::{
 };
 use sp_consensus_vrf::schnorrkel;
 
+use cessc_consensus_rrsc::*;
+
 pub use cessp_consensus_rrsc::{AuthorityId, PUBLIC_KEY_LENGTH, RANDOMNESS_LENGTH, VRF_OUTPUT_LENGTH};
 
 mod default_weights;
