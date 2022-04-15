@@ -43,14 +43,12 @@ use sp_std::prelude::*;
 use cessp_consensus_rrsc::{
 	digests::{NextConfigDescriptor, NextEpochDescriptor, PreDigest},
 	RRSCAuthorityWeight, RRSCEpochConfiguration, ConsensusLog, Epoch, EquivocationProof, Slot,
-	RRSC_ENGINE_ID, RRSC_VRF_PREFIX
+	RRSC_ENGINE_ID, 
 };
 
 use sp_consensus_vrf::schnorrkel as sp_schnorrkel;
 
 pub use cessp_consensus_rrsc::{AuthorityId, PUBLIC_KEY_LENGTH, RANDOMNESS_LENGTH, VRF_OUTPUT_LENGTH};
-
-use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
 
 mod default_weights;
 mod equivocation;
@@ -895,7 +893,6 @@ impl<T: Config> Pallet<T> {
 		WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(Self::authorities().to_vec())
 				.expect("Initial number of secondary authorities should be lower than T::MaxSecondaryAuthorities")
 	}
-
 
 }
 
