@@ -49,8 +49,6 @@ use sp_consensus_vrf::schnorrkel as sp_schnorrkel;
 
 use schnorrkel::{keys::PublicKey, vrf::VRFInOut};
 
-use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
-
 pub use cessp_consensus_rrsc::{AuthorityId, PUBLIC_KEY_LENGTH, RANDOMNESS_LENGTH, VRF_OUTPUT_LENGTH};
 
 mod default_weights;
