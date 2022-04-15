@@ -886,8 +886,8 @@ fn rrsc_transcript_generation_match() {
 		},
 	};
 
-	let orig_transcript = make_transcript(&epoch.randomness.clone(), epoch.epoch_index);
-	let new_transcript = make_transcript_data(&epoch.randomness, epoch.epoch_index);
+	let orig_transcript = make_transcript(&epoch.randomness.clone(), 1.into(), epoch.epoch_index);
+	let new_transcript = make_transcript_data(&epoch.randomness, 1.into(), epoch.epoch_index);
 
 	let test = |t: merlin::Transcript| -> [u8; 16] {
 		let mut b = [0u8; 16];

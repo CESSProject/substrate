@@ -158,7 +158,7 @@ fn check_primary_header<B: BlockT + Sized>(
 
 	if AuthorityPair::verify(&signature, pre_hash, &author) {
 		let (inout, _) = {
-			let transcript = make_transcript(&epoch.randomness, epoch.epoch_index);
+			let transcript = make_transcript(&epoch.randomness, pre_digest.slot, epoch.epoch_index);
 
 			schnorrkel::PublicKey::from_bytes(author.as_slice())
 				.and_then(|p| {
@@ -229,7 +229,7 @@ fn check_secondary_vrf_header<B: BlockT>(
 	}
 
 	if AuthorityPair::verify(&signature, pre_hash.as_ref(), author) {
-		let transcript = make_transcript(&epoch.randomness, epoch.epoch_index);
+		let transcript = make_transcript(&epoch.randomness, pre_digest.slot, epoch.epoch_index);
 
 		schnorrkel::PublicKey::from_bytes(author.as_slice())
 			.and_then(|p| p.vrf_verify(transcript, &pre_digest.vrf_output, &pre_digest.vrf_proof))

@@ -353,7 +353,7 @@ pub fn make_vrf_output(
 	pair: &cessp_consensus_rrsc::AuthorityPair,
 ) -> (VRFOutput, VRFProof, [u8; 32]) {
 	let pair = sp_core::sr25519::Pair::from_ref(pair).as_ref();
-	let transcript = cessp_consensus_rrsc::make_transcript(&RRSC::randomness(), 0);
+	let transcript = cessp_consensus_rrsc::make_transcript(&RRSC::randomness(), slot, 0);
 	let vrf_inout = pair.vrf_sign(transcript);
 	let vrf_randomness: sp_consensus_vrf::schnorrkel::Randomness =
 		vrf_inout.0.make_bytes::<[u8; 32]>(&cessp_consensus_rrsc::RRSC_VRF_INOUT_CONTEXT);
