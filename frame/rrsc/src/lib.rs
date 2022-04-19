@@ -895,6 +895,17 @@ impl<T: Config> Pallet<T> {
 		WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(Self::authorities().to_vec())
 				.expect("Initial number of secondary authorities should be lower than T::MaxSecondaryAuthorities")
 	}
+
+	fn calculate_threshold(
+		authorities: &[(AuthorityId, RRSCAuthorityWeight)],
+		authority_index: usize
+	) -> u128 {
+		use num_bigint::BigUint;
+		use num_rational::BigRational;
+		use num_traits::{cast::ToPrimitive, identities::One};
+	
+		1u128
+	}
 }
 
 impl<T: Config> OnTimestampSet<T::Moment> for Pallet<T> {
