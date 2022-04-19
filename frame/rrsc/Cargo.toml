@@ -30,6 +30,8 @@ sp-session = { version = "4.0.0-dev", default-features = false, path = "../../pr
 sp-staking = { version = "4.0.0-dev", default-features = false, path = "../../primitives/staking" }
 sp-std = { version = "4.0.0-dev", default-features = false, path = "../../primitives/std" }
 log = { version = "0.4.14", default-features = false }
+schnorrkel = { version = "0.9.1", features = ["preaudit_deprecated"] }
+sp-keystore = { version = "0.10.0-dev", path = "../../primitives/keystore" }
 
 [dev-dependencies]
 pallet-balances = { version = "4.0.0-dev", path = "../balances" }

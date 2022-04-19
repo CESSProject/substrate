@@ -856,56 +856,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cessc-consensus-rrsc"
-version = "0.10.0-dev"
-dependencies = [
- "async-trait",
- "cessp-consensus-rrsc",
- "derive_more",
- "fork-tree",
- "futures 0.3.16",
- "log 0.4.14",
- "merlin",
- "num-bigint",
- "num-rational 0.2.4",
- "num-traits",
- "parity-scale-codec",
- "parking_lot 0.11.1",
- "rand 0.7.3",
- "rand_chacha 0.2.2",
- "retain_mut",
- "sc-block-builder",
- "sc-client-api",
- "sc-consensus",
- "sc-consensus-epochs",
- "sc-consensus-slots",
- "sc-keystore",
- "sc-network",
- "sc-network-test",
- "sc-telemetry",
- "schnorrkel",
- "serde",
- "sp-api",
- "sp-application-crypto",
- "sp-block-builder",
- "sp-blockchain",
- "sp-consensus",
- "sp-consensus-slots",
- "sp-consensus-vrf",
- "sp-core",
- "sp-inherents",
- "sp-io",
- "sp-keystore",
- "sp-runtime",
- "sp-timestamp",
- "sp-tracing",
- "sp-version",
- "substrate-prometheus-endpoint",
- "substrate-test-runtime-client",
- "tempfile",
-]
-
-[[package]]
 name = "cessp-consensus-rrsc"
 version = "0.10.0-dev"
 dependencies = [
@@ -5912,7 +5862,6 @@ dependencies = [
 name = "pallet-rrsc"
 version = "4.0.0-dev"
 dependencies = [
- "cessc-consensus-rrsc",
  "cessp-consensus-rrsc",
  "frame-benchmarking",
  "frame-election-provider-support",
@@ -5928,10 +5877,12 @@ dependencies = [
  "pallet-timestamp",
  "parity-scale-codec",
  "scale-info",
+ "schnorrkel",
  "sp-application-crypto",
  "sp-consensus-vrf",
  "sp-core",
  "sp-io",
+ "sp-keystore",
  "sp-runtime",
  "sp-session",
  "sp-staking",
