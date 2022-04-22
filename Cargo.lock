@@ -890,28 +890,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cessp-consensus-rrsc"
-version = "0.10.0-dev"
-dependencies = [
- "async-trait",
- "merlin",
- "parity-scale-codec",
- "scale-info",
- "serde",
- "sp-api",
- "sp-application-crypto",
- "sp-consensus",
- "sp-consensus-slots",
- "sp-consensus-vrf",
- "sp-core",
- "sp-inherents",
- "sp-keystore",
- "sp-runtime",
- "sp-std",
- "sp-timestamp",
-]
-
-[[package]]
 name = "cexpr"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6345,40 +6323,6 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
- "sp-std",
-]
-
-[[package]]
-name = "pallet-rrsc"
-version = "4.0.0-dev"
-dependencies = [
- "cessp-consensus-rrsc",
- "frame-benchmarking",
- "frame-election-provider-support",
- "frame-support",
- "frame-system",
- "log 0.4.14",
- "num-bigint",
- "num-rational 0.2.4",
- "num-traits",
- "pallet-authorship",
- "pallet-balances",
- "pallet-offences",
- "pallet-session",
- "pallet-staking",
- "pallet-staking-reward-curve",
- "pallet-timestamp",
- "parity-scale-codec",
- "scale-info",
- "schnorrkel",
- "sp-application-crypto",
- "sp-consensus-vrf",
- "sp-core",
- "sp-io",
- "sp-keystore",
- "sp-runtime",
- "sp-session",
- "sp-staking",
  "sp-std",
 ]
 
