@@ -25,24 +25,24 @@ use frame_support::{
 	pallet_prelude::*,
 	traits::{
 		Currency, CurrencyToVote, Defensive, EstimateNextNewSession, Get, Imbalance,
-		LockableCurrency, OnUnbalanced, UnixTime, WithdrawReasons,
+		LockableCurrency, OnUnbalanced, WithdrawReasons,
 	},
 	weights::{Weight, WithPostDispatchInfo},
 };
 use frame_system::pallet_prelude::BlockNumberFor;
 use pallet_session::historical;
 use sp_runtime::{
-	traits::{Bounded, Convert, SaturatedConversion, Saturating, Zero},
+	traits::{Bounded, Convert, Saturating, Zero},
 	Perbill,
 };
 use sp_staking::{
 	offence::{DisableStrategy, OffenceDetails, OnOffenceHandler},
 	EraIndex, SessionIndex,
 };
-use sp_std::{collections::btree_map::BTreeMap, prelude::*};
+use sp_std::{convert::TryInto, collections::btree_map::BTreeMap, prelude::*};
 
 use crate::{
-	log, slashing, weights::WeightInfo, ActiveEraInfo, BalanceOf, EraPayout, Exposure, ExposureOf,
+	log, slashing, weights::WeightInfo, ActiveEraInfo, BalanceOf, Exposure, ExposureOf,
 	Forcing, IndividualExposure, Nominations, PositiveImbalanceOf, RewardDestination,
 	SessionInterface, StakingLedger, ValidatorPrefs,
 };
@@ -376,23 +376,37 @@ impl<T: Config> Pallet<T> {
 	/// Compute payout for era.
 	fn end_era(active_era: ActiveEraInfo, _session_index: SessionIndex) {
 		// Note: active_era_start can be None if end era is called during genesis config.
-		if let Some(active_era_start) = active_era.start {
-			let now_as_millis_u64 = T::UnixTime::now().as_millis().saturated_into::<u64>();
+		if let Some(_active_era_start) = active_era.start {
+			let (validator_payout, sminer_payout) = Self::rewards_in_era(active_era.index);
 
-			let era_duration = (now_as_millis_u64 - active_era_start).saturated_into::<u64>();
-			let staked = Self::eras_total_stake(&active_era.index);
-			let issuance = T::Currency::total_issuance();
-			let (validator_payout, rest) = T::EraPayout::era_payout(staked, issuance, era_duration);
-
-			Self::deposit_event(Event::<T>::EraPaid(active_era.index, validator_payout, rest));
+			Self::deposit_event(Event::<T>::EraPaid(active_era.index, validator_payout, sminer_payout));
 
 			// Set ending era reward.
 			<ErasValidatorReward<T>>::insert(&active_era.index, validator_payout);
-			T::RewardRemainder::on_unbalanced(T::Currency::issue(rest));
+			T::SminerRewardPool::on_unbalanced(T::Currency::issue(sminer_payout));
 
 			// Clear offending validators.
 			<OffendingValidators<T>>::kill();
 		}
+	}
+
+	/// Compute rewards for validator and sminer for era.
+	fn rewards_in_era(active_era_index: EraIndex) -> (BalanceOf<T>, BalanceOf<T>) {
+		let mut year_num = active_era_index as u64 / T::ERAS_PER_YEAR;
+		let mut validator_rewards_this_year = TryInto::<u128>::try_into(T::FIRST_YEAR_VALIDATOR_REWARDS).ok().unwrap();
+		let mut sminer_rewards_this_year = TryInto::<u128>::try_into(T::FIRST_YEAR_SMINER_REWARDS).ok().unwrap();
+		// No longer decrease from the 41st year.
+		if year_num > 40 {
+			year_num = 40;
+		}
+		for _ in 0..year_num {
+			validator_rewards_this_year = T::REWARD_DECREASE_RATIO * validator_rewards_this_year;
+			sminer_rewards_this_year = T::REWARD_DECREASE_RATIO * sminer_rewards_this_year;
+		}
+
+		let validator_rewards_this_era = validator_rewards_this_year / T::ERAS_PER_YEAR as u128;
+		let sminer_rewards_this_era = sminer_rewards_this_year / T::ERAS_PER_YEAR as u128;
+		(validator_rewards_this_era.try_into().ok().unwrap(), sminer_rewards_this_era.try_into().ok().unwrap())
 	}
 
 	/// Plan a new era.

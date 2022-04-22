@@ -17,7 +17,7 @@
 
 //! Test utilities
 
-use crate::{self as pallet_staking, *};
+use crate::{self as pallet_cess_staking, *};
 use frame_election_provider_support::{
 	onchain, SequentialPhragmen, SortedListProvider, VoteWeight,
 };
@@ -97,7 +97,7 @@ frame_support::construct_runtime!(
 		Authorship: pallet_authorship::{Pallet, Call, Storage, Inherent},
 		Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent},
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
-		Staking: pallet_staking::{Pallet, Call, Config<T>, Storage, Event<T>},
+		Staking: pallet_cess_staking::{Pallet, Call, Config<T>, Storage, Event<T>},
 		Session: pallet_session::{Pallet, Call, Storage, Event, Config<T>},
 		Historical: pallet_session::historical::{Pallet, Storage},
 		BagsList: pallet_bags_list::{Pallet, Call, Storage, Event<T>},
@@ -255,6 +255,11 @@ impl onchain::ExecutionConfig for OnChainSeqPhragmen {
 }
 
 impl crate::pallet::pallet::Config for Test {
+	const ERAS_PER_YEAR: u64 = 8766;
+	const FIRST_YEAR_VALIDATOR_REWARDS: BalanceOf<Test> = 618_000_000;
+	const FIRST_YEAR_SMINER_REWARDS: BalanceOf<Test> = 309_000_000;
+	const REWARD_DECREASE_RATIO: Perbill = Perbill::from_perthousand(794);
+	type SminerRewardPool = ();
 	type MaxNominations = MaxNominations;
 	type Currency = Balances;
 	type UnixTime = Timestamp;
@@ -481,7 +486,7 @@ impl ExtBuilder {
 			stakers.extend(self.stakers)
 		}
 
-		let _ = pallet_staking::GenesisConfig::<Test> {
+		let _ = pallet_cess_staking::GenesisConfig::<Test> {
 			stakers: stakers.clone(),
 			validator_count: self.validator_count,
 			minimum_validator_count: self.minimum_validator_count,
