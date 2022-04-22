@@ -31,7 +31,7 @@ use frame_support::{
 	weights::{Pays, Weight},
 	BoundedVec, WeakBoundedVec,
 };
-use sp_application_crypto::{Public, TryFrom};
+use sp_application_crypto::ByteArray;
 use sp_runtime::{
 	generic::DigestItem,
 	traits::{IsMember, One, SaturatedConversion, Saturating, Zero},
@@ -676,7 +676,7 @@ impl<T: Config> Pallet<T> {
 	}
 
 	fn deposit_consensus<U: Encode>(new: U) {
-		let log: DigestItem<T::Hash> = DigestItem::Consensus(RRSC_ENGINE_ID, new.encode());
+		let log = DigestItem::Consensus(RRSC_ENGINE_ID, new.encode());
 		<frame_system::Pallet<T>>::deposit_log(log.into())
 	}
 
@@ -903,7 +903,49 @@ impl<T: Config> Pallet<T> {
 		use num_rational::BigRational;
 		use num_traits::{cast::ToPrimitive, identities::One};
 	
-		1u128
+		let c = 3 as f64 / 10 as f64;
+	
+		let theta = authorities[authority_index].1 as f64 /
+			authorities.iter().map(|(_, weight)| weight).sum::<u64>() as f64;
+	
+		assert!(theta > 0.0, "authority with weight 0.");
+	
+		// NOTE: in the equation `p = 1 - (1 - c)^theta` the value of `p` is always
+		// capped by `c`. For all pratical purposes `c` should always be set to a
+		// value < 0.5, as such in the computations below we should never be near
+		// edge cases like `0.999999`.
+	
+		let p = BigRational::from_float(1f64 - (1f64 - c).powf(theta)).expect(
+			"returns None when the given value is not finite; \
+			 c is a configuration parameter defined in (0, 1]; \
+			 theta must be > 0 if the given authority's weight is > 0; \
+			 theta represents the validator's relative weight defined in (0, 1]; \
+			 powf will always return values in (0, 1] given both the \
+			 base and exponent are in that domain; \
+			 qed.",
+		);
+	
+		let numer = p.numer().to_biguint().expect(
+			"returns None when the given value is negative; \
+			 p is defined as `1 - n` where n is defined in (0, 1]; \
+			 p must be a value in [0, 1); \
+			 qed.",
+		);
+	
+		let denom = p.denom().to_biguint().expect(
+			"returns None when the given value is negative; \
+			 p is defined as `1 - n` where n is defined in (0, 1]; \
+			 p must be a value in [0, 1); \
+			 qed.",
+		);
+	
+		((BigUint::one() << 128) * numer / denom).to_u128().expect(
+			"returns None if the underlying value cannot be represented with 128 bits; \
+			 we start with 2^128 which is one more than can be represented with 128 bits; \
+			 we multiple by p which is defined in [0, 1); \
+			 the result must be lower than 2^128 by at least one and thus representable with 128 bits; \
+			 qed.",
+		)
 	}
 }
 
@@ -992,8 +1034,8 @@ impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 		Self::enact_epoch_change(bounded_authorities, next_bounded_authorities)
 	}
 
-	fn on_disabled(i: usize) {
-		Self::deposit_consensus(ConsensusLog::OnDisabled(i as u32))
+	fn on_disabled(i: u32) {
+		Self::deposit_consensus(ConsensusLog::OnDisabled(i))
 	}
 }
 
