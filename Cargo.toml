@@ -111,7 +111,7 @@ members = [
 	"frame/randomness-collective-flip",
 	"frame/recovery",
 	"frame/referenda",
-	"frame/rrsc",
+	# "frame/rrsc",
 	"frame/scheduler",
 	"frame/scored-pool",
 	"frame/session",
