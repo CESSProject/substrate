@@ -17,7 +17,11 @@
 
 //! Primitives for RRSC.
 #![deny(warnings)]
-#![forbid(unsafe_code, missing_docs, unused_variables, unused_imports)]
+
+// JC: Make the lint rule more lenient
+// #![forbid(unsafe_code, missing_docs, unused_variables, unused_imports)]
+#![forbid(unsafe_code)]
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub mod digests;
@@ -251,14 +255,14 @@ impl AllowedSlots {
 	}
 }
 
-#[cfg(feature = "std")]
-impl sp_consensus::SlotData for RRSCGenesisConfiguration {
-	fn slot_duration(&self) -> std::time::Duration {
-		std::time::Duration::from_millis(self.slot_duration)
-	}
+// #[cfg(feature = "std")]
+// impl sp_consensus::SlotData for RRSCGenesisConfiguration {
+// 	fn slot_duration(&self) -> std::time::Duration {
+// 		std::time::Duration::from_millis(self.slot_duration)
+// 	}
 
-	const SLOT_KEY: &'static [u8] = b"rrsc_configuration";
-}
+// 	const SLOT_KEY: &'static [u8] = b"rrsc_configuration";
+// }
 
 /// Configuration data used by the RRSC consensus engine.
 #[derive(Clone, PartialEq, Eq, Encode, Decode, RuntimeDebug, MaxEncodedLen, TypeInfo)]

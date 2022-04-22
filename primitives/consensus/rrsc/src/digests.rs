@@ -21,7 +21,7 @@ use super::{
 	AllowedSlots, AuthorityId, AuthorityIndex, AuthoritySignature, RRSCAuthorityWeight,
 	RRSCEpochConfiguration, Slot, RRSC_ENGINE_ID,
 };
-use codec::{Codec, Decode, Encode, MaxEncodedLen};
+use codec::{Decode, Encode, MaxEncodedLen};
 use sp_runtime::{DigestItem, RuntimeDebug};
 use sp_std::vec::Vec;
 
@@ -183,10 +183,7 @@ pub trait CompatibleDigestItem: Sized {
 	fn as_next_config_descriptor(&self) -> Option<NextConfigDescriptor>;
 }
 
-impl<Hash> CompatibleDigestItem for DigestItem<Hash>
-where
-	Hash: Send + Sync + Eq + Clone + Codec + 'static,
-{
+impl CompatibleDigestItem for DigestItem {
 	fn rrsc_pre_digest(digest: PreDigest) -> Self {
 		DigestItem::PreRuntime(RRSC_ENGINE_ID, digest.encode())
 	}
