@@ -337,17 +337,11 @@ pub mod pallet {
 	#[pallet::storage]
 	pub(super) type NextEpochConfig<T> = StorageValue<_, RRSCEpochConfiguration>;
 
+	#[cfg_attr(feature = "std", derive(Default))]
 	#[pallet::genesis_config]
 	pub struct GenesisConfig {
 		pub authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
 		pub epoch_config: Option<RRSCEpochConfiguration>,
-	}
-
-	#[cfg(feature = "std")]
-	impl Default for GenesisConfig {
-		fn default() -> Self {
-			GenesisConfig { authorities: Default::default(), epoch_config: Default::default() }
-		}
 	}
 
 	#[pallet::genesis_build]
@@ -615,7 +609,6 @@ impl<T: Config> Pallet<T> {
 
 			Self::deposit_consensus(ConsensusLog::NextConfigData(pending_epoch_config_change));
 		}
-
 	}
 
 	/// Finds the start slot of the current epoch. only guaranteed to

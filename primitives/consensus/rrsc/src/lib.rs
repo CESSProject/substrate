@@ -17,11 +17,7 @@
 
 //! Primitives for RRSC.
 #![deny(warnings)]
-
-// JC: Make the lint rule more lenient
-// #![forbid(unsafe_code, missing_docs, unused_variables, unused_imports)]
-#![forbid(unsafe_code)]
-
+#![forbid(unsafe_code, missing_docs, unused_variables, unused_imports)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub mod digests;
@@ -83,7 +79,7 @@ pub const MEDIAN_ALGORITHM_CARDINALITY: usize = 1200; // arbitrary suggestion by
 /// The index of an authority.
 pub type AuthorityIndex = u32;
 
-pub use sp_consensus_slots::Slot;
+pub use sp_consensus_slots::{Slot, SlotDuration};
 
 /// An equivocation proof for multiple block authorships on the same slot (i.e. double vote).
 pub type EquivocationProof<H> = sp_consensus_slots::EquivocationProof<H, AuthorityId>;
@@ -254,15 +250,6 @@ impl AllowedSlots {
 		*self == Self::PrimaryAndSecondaryVRFSlots
 	}
 }
-
-// #[cfg(feature = "std")]
-// impl sp_consensus::SlotData for RRSCGenesisConfiguration {
-// 	fn slot_duration(&self) -> std::time::Duration {
-// 		std::time::Duration::from_millis(self.slot_duration)
-// 	}
-
-// 	const SLOT_KEY: &'static [u8] = b"rrsc_configuration";
-// }
 
 /// Configuration data used by the RRSC consensus engine.
 #[derive(Clone, PartialEq, Eq, Encode, Decode, RuntimeDebug, MaxEncodedLen, TypeInfo)]

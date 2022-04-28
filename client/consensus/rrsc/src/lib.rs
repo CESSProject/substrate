@@ -60,14 +60,19 @@
 //! primary blocks in the chain. We will pick the heaviest chain (more primary
 //! blocks) and will go with the longest one in case of a tie.
 //!
-//! An in-depth description and analysis of the protocol can be found here:
-//! <https://research.web3.foundation/en/latest/polkadot/block-production/RRSC.html>
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
 use std::{
-	borrow::Cow, collections::HashMap, convert::TryInto, pin::Pin, sync::Arc, time::Duration, u64,
+	borrow::Cow,
+	collections::{HashMap, HashSet},
+	convert::TryInto,
+	future::Future,
+	pin::Pin,
+	sync::Arc,
+	task::{Context, Poll},
+	time::Duration,
 };
 
 use codec::{Decode, Encode};
@@ -84,7 +89,10 @@ use prometheus_endpoint::Registry;
 use retain_mut::RetainMut;
 use schnorrkel::SignatureError;
 
-use sc_client_api::{backend::AuxStore, BlockchainEvents, ProvideUncles, UsageProvider};
+use sc_client_api::{
+	backend::AuxStore, AuxDataOperations, Backend as BackendT, BlockchainEvents,
+	FinalityNotification, PreCommitActions, ProvideUncles, UsageProvider,
+};
 use sc_consensus::{
 	block_import::{
 		BlockCheckParams, BlockImport, BlockImportParams, ForkChoiceStrategy, ImportResult,
@@ -100,24 +108,25 @@ use sc_consensus_slots::{
 	SlotInfo, StorageChanges,
 };
 use sc_telemetry::{telemetry, TelemetryHandle, CONSENSUS_DEBUG, CONSENSUS_TRACE};
-use sp_api::{ApiExt, NumberFor, ProvideRuntimeApi};
+use sp_api::{ApiExt, ProvideRuntimeApi};
 use sp_application_crypto::AppKey;
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
 use sp_blockchain::{
-	Error as ClientError, HeaderBackend, HeaderMetadata, ProvideCache, Result as ClientResult,
+	Backend as _, Error as ClientError, HeaderBackend, HeaderMetadata, Result as ClientResult,
 };
 use sp_consensus::{
 	BlockOrigin, CacheKeyId, CanAuthorWith, Environment, Error as ConsensusError, Proposer,
-	SelectChain, SlotData,
+	SelectChain,
 };
 use cessp_consensus_rrsc::inherents::RRSCInherentData;
 use sp_consensus_slots::Slot;
-use sp_core::{crypto::Public, ExecutionContext};
+use sp_core::{crypto::ByteArray, ExecutionContext};
 use sp_inherents::{CreateInherentDataProviders, InherentData, InherentDataProvider};
 use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
 use sp_runtime::{
 	generic::{BlockId, OpaqueDigestItemId},
-	traits::{Block as BlockT, DigestItemFor, Header, Zero},
+	traits::{Block as BlockT, Header, NumberFor, One, SaturatedConversion, Saturating, Zero},
+	DigestItem,
 };
 
 pub use sc_consensus_slots::SlotProportion;
@@ -228,95 +237,94 @@ impl Epoch {
 }
 
 /// Errors encountered by the rrsc authorship task.
-#[derive(derive_more::Display, Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error<B: BlockT> {
 	/// Multiple RRSC pre-runtime digests
-	#[display(fmt = "Multiple RRSC pre-runtime digests, rejecting!")]
+	#[error("Multiple RRSC pre-runtime digests, rejecting!")]
 	MultiplePreRuntimeDigests,
 	/// No RRSC pre-runtime digest found
-	#[display(fmt = "No RRSC pre-runtime digest found")]
+	#[error("No RRSC pre-runtime digest found")]
 	NoPreRuntimeDigest,
 	/// Multiple RRSC epoch change digests
-	#[display(fmt = "Multiple RRSC epoch change digests, rejecting!")]
+	#[error("Multiple RRSC epoch change digests, rejecting!")]
 	MultipleEpochChangeDigests,
 	/// Multiple RRSC config change digests
-	#[display(fmt = "Multiple RRSC config change digests, rejecting!")]
+	#[error("Multiple RRSC config change digests, rejecting!")]
 	MultipleConfigChangeDigests,
 	/// Could not extract timestamp and slot
-	#[display(fmt = "Could not extract timestamp and slot: {:?}", _0)]
+	#[error("Could not extract timestamp and slot: {0}")]
 	Extraction(sp_consensus::Error),
 	/// Could not fetch epoch
-	#[display(fmt = "Could not fetch epoch at {:?}", _0)]
+	#[error("Could not fetch epoch at {0:?}")]
 	FetchEpoch(B::Hash),
 	/// Header rejected: too far in the future
-	#[display(fmt = "Header {:?} rejected: too far in the future", _0)]
+	#[error("Header {0:?} rejected: too far in the future")]
 	TooFarInFuture(B::Hash),
 	/// Parent unavailable. Cannot import
-	#[display(fmt = "Parent ({}) of {} unavailable. Cannot import", _0, _1)]
+	#[error("Parent ({0}) of {1} unavailable. Cannot import")]
 	ParentUnavailable(B::Hash, B::Hash),
 	/// Slot number must increase
-	#[display(fmt = "Slot number must increase: parent slot: {}, this slot: {}", _0, _1)]
+	#[error("Slot number must increase: parent slot: {0}, this slot: {1}")]
 	SlotMustIncrease(Slot, Slot),
 	/// Header has a bad seal
-	#[display(fmt = "Header {:?} has a bad seal", _0)]
+	#[error("Header {0:?} has a bad seal")]
 	HeaderBadSeal(B::Hash),
 	/// Header is unsealed
-	#[display(fmt = "Header {:?} is unsealed", _0)]
+	#[error("Header {0:?} is unsealed")]
 	HeaderUnsealed(B::Hash),
 	/// Slot author not found
-	#[display(fmt = "Slot author not found")]
+	#[error("Slot author not found")]
 	SlotAuthorNotFound,
 	/// Secondary slot assignments are disabled for the current epoch.
-	#[display(fmt = "Secondary slot assignments are disabled for the current epoch.")]
+	#[error("Secondary slot assignments are disabled for the current epoch.")]
 	SecondarySlotAssignmentsDisabled,
 	/// Bad signature
-	#[display(fmt = "Bad signature on {:?}", _0)]
+	#[error("Bad signature on {0:?}")]
 	BadSignature(B::Hash),
 	/// Invalid author: Expected secondary author
-	#[display(fmt = "Invalid author: Expected secondary author: {:?}, got: {:?}.", _0, _1)]
+	#[error("Invalid author: Expected secondary author: {0:?}, got: {1:?}.")]
 	InvalidAuthor(AuthorityId, AuthorityId),
 	/// No secondary author expected.
-	#[display(fmt = "No secondary author expected.")]
+	#[error("No secondary author expected.")]
 	NoSecondaryAuthorExpected,
 	/// VRF verification of block by author failed
-	#[display(
-		fmt = "VRF verification of block by author {:?} failed: threshold {} exceeded",
-		_0,
-		_1
-	)]
+	#[error("VRF verification of block by author {0:?} failed: threshold {1} exceeded")]
 	VRFVerificationOfBlockFailed(AuthorityId, u128),
 	/// VRF verification failed
-	#[display(fmt = "VRF verification failed: {:?}", _0)]
+	#[error("VRF verification failed: {0:?}")]
 	VRFVerificationFailed(SignatureError),
 	/// Could not fetch parent header
-	#[display(fmt = "Could not fetch parent header: {:?}", _0)]
+	#[error("Could not fetch parent header: {0}")]
 	FetchParentHeader(sp_blockchain::Error),
 	/// Expected epoch change to happen.
-	#[display(fmt = "Expected epoch change to happen at {:?}, s{}", _0, _1)]
+	#[error("Expected epoch change to happen at {0:?}, s{1}")]
 	ExpectedEpochChange(B::Hash, Slot),
 	/// Unexpected config change.
-	#[display(fmt = "Unexpected config change")]
+	#[error("Unexpected config change")]
 	UnexpectedConfigChange,
 	/// Unexpected epoch change
-	#[display(fmt = "Unexpected epoch change")]
+	#[error("Unexpected epoch change")]
 	UnexpectedEpochChange,
 	/// Parent block has no associated weight
-	#[display(fmt = "Parent block of {} has no associated weight", _0)]
+	#[error("Parent block of {0} has no associated weight")]
 	ParentBlockNoAssociatedWeight(B::Hash),
 	/// Check inherents error
-	#[display(fmt = "Checking inherents failed: {}", _0)]
+	#[error("Checking inherents failed: {0}")]
 	CheckInherents(sp_inherents::Error),
 	/// Unhandled check inherents error
-	#[display(fmt = "Checking inherents unhandled error: {}", "String::from_utf8_lossy(_0)")]
+	#[error("Checking inherents unhandled error: {}", String::from_utf8_lossy(.0))]
 	CheckInherentsUnhandled(sp_inherents::InherentIdentifier),
 	/// Create inherents error.
-	#[display(fmt = "Creating inherents failed: {}", _0)]
+	#[error("Creating inherents failed: {0}")]
 	CreateInherents(sp_inherents::Error),
 	/// Client error
+	#[error(transparent)]
 	Client(sp_blockchain::Error),
 	/// Runtime Api error.
+	#[error(transparent)]
 	RuntimeApi(sp_api::ApiError),
 	/// Fork tree error
+	#[error(transparent)]
 	ForkTree(Box<fork_tree::Error<sp_blockchain::Error>>),
 }
 
@@ -340,60 +348,55 @@ pub struct RRSCIntermediate<B: BlockT> {
 /// Intermediate key for RRSC engine.
 pub static INTERMEDIATE_KEY: &[u8] = b"rrsc1";
 
-/// A slot duration. Create with `get_or_compute`.
-// FIXME: Once Rust has higher-kinded types, the duplication between this
-// and `super::rrsc::Config` can be eliminated.
-// https://github.com/paritytech/substrate/issues/2434
+/// Configuration for RRSC used for defining block verification parameters as
+/// well as authoring (e.g. the slot duration).
 #[derive(Clone)]
-pub struct Config(sc_consensus_slots::SlotDuration<RRSCGenesisConfiguration>);
+pub struct Config {
+	genesis_config: RRSCGenesisConfiguration,
+}
 
 impl Config {
-	/// Either fetch the slot duration from disk or compute it from the genesis
-	/// state.
-	pub fn get_or_compute<B: BlockT, C>(client: &C) -> ClientResult<Self>
+	/// Create a new config by reading the genesis configuration from the runtime.
+	pub fn get<B: BlockT, C>(client: &C) -> ClientResult<Self>
 	where
 		C: AuxStore + ProvideRuntimeApi<B> + UsageProvider<B>,
 		C::Api: RRSCApi<B>,
 	{
 		trace!(target: "rrsc", "Getting slot duration");
-		match sc_consensus_slots::SlotDuration::get_or_compute(client, |a, b| {
-			let has_api_v1 = a.has_api_with::<dyn RRSCApi<B>, _>(&b, |v| v == 1)?;
-			let has_api_v2 = a.has_api_with::<dyn RRSCApi<B>, _>(&b, |v| v == 2)?;
 
-			if has_api_v1 {
-				#[allow(deprecated)]
-				{
-					Ok(a.configuration_before_version_2(b)?.into())
-				}
-			} else if has_api_v2 {
-				a.configuration(b).map_err(Into::into)
-			} else {
-				Err(sp_blockchain::Error::VersionInvalid(
-					"Unsupported or invalid RRSCApi version".to_string(),
-				))
-			}
-		})
-		.map(Self)
-		{
-			Ok(s) => Ok(s),
-			Err(s) => {
-				warn!(target: "rrsc", "Failed to get slot duration");
-				Err(s)
-			},
+		let mut best_block_id = BlockId::Hash(client.usage_info().chain.best_hash);
+		if client.usage_info().chain.finalized_state.is_none() {
+			debug!(target: "rrsc", "No finalized state is available. Reading config from genesis");
+			best_block_id = BlockId::Hash(client.usage_info().chain.genesis_hash);
 		}
+		let runtime_api = client.runtime_api();
+
+		let version = runtime_api.api_version::<dyn RRSCApi<B>>(&best_block_id)?;
+
+		let genesis_config = if version == Some(1) {
+			#[allow(deprecated)]
+			{
+				runtime_api.configuration_before_version_2(&best_block_id)?.into()
+			}
+		} else if version == Some(2) {
+			runtime_api.configuration(&best_block_id)?
+		} else {
+			return Err(sp_blockchain::Error::VersionInvalid(
+				"Unsupported or invalid RRSCApi version".to_string(),
+			))
+		};
+
+		Ok(Config { genesis_config })
 	}
 
-	/// Get the inner slot duration
-	pub fn slot_duration(&self) -> Duration {
-		self.0.slot_duration()
+	/// Get the genesis configuration.
+	pub fn genesis_config(&self) -> &RRSCGenesisConfiguration {
+		&self.genesis_config
 	}
-}
 
-impl std::ops::Deref for Config {
-	type Target = RRSCGenesisConfiguration;
-
-	fn deref(&self) -> &RRSCGenesisConfiguration {
-		&*self.0
+	/// Get the slot duration defined in the genesis configuration.
+	pub fn slot_duration(&self) -> SlotDuration {
+		SlotDuration::from_millis(self.genesis_config.slot_duration)
 	}
 }
 
@@ -475,9 +478,9 @@ pub fn start_rrsc<B, C, SC, E, I, SO, CIDP, BS, CAW, L, Error>(
 where
 	B: BlockT,
 	C: ProvideRuntimeApi<B>
-		+ ProvideCache<B>
 		+ ProvideUncles<B>
 		+ BlockchainEvents<B>
+		+ PreCommitActions<B>
 		+ HeaderBackend<B>
 		+ HeaderMetadata<B, Error = ClientError>
 		+ Send
@@ -501,7 +504,6 @@ where
 {
 	const HANDLE_BUFFER_SIZE: usize = 1024;
 
-	let config = rrsc_link.config;
 	let slot_notification_sinks = Arc::new(Mutex::new(Vec::new()));
 
 	let worker = RRSCSlotWorker {
@@ -522,10 +524,11 @@ where
 	};
 
 	info!(target: "rrsc", "👶 Starting RRSC Authorship worker");
-	let inner = sc_consensus_slots::start_slot_worker(
-		config.0.clone(),
+
+	let slot_worker = sc_consensus_slots::start_slot_worker(
+		rrsc_link.config.slot_duration(),
 		select_chain,
-		worker,
+		sc_consensus_slots::SimpleSlotWorkerToSlotWorker(worker),
 		sync_oracle,
 		create_inherent_data_providers,
 		can_author_with,
@@ -534,22 +537,77 @@ where
 	let (worker_tx, worker_rx) = channel(HANDLE_BUFFER_SIZE);
 
 	let answer_requests =
-		answer_requests(worker_rx, config.0, client, rrsc_link.epoch_changes.clone());
+		answer_requests(worker_rx, rrsc_link.config, client, rrsc_link.epoch_changes.clone());
+	let inner = future::select(Box::pin(slot_worker), Box::pin(answer_requests));
 	Ok(RRSCWorker {
-		inner: Box::pin(future::join(inner, answer_requests).map(|_| ())),
+		inner: Box::pin(inner.map(|_| ())),
 		slot_notification_sinks,
 		handle: RRSCWorkerHandle(worker_tx),
 	})
 }
 
+// Remove obsolete block's weight data by leveraging finality notifications.
+// This includes data for all finalized blocks (excluding the most recent one)
+// and all stale branches.
+fn aux_storage_cleanup<C: HeaderMetadata<Block>, Block: BlockT>(
+	client: &C,
+	notification: &FinalityNotification<Block>,
+) -> AuxDataOperations {
+	let mut aux_keys = HashSet::new();
+
+	// Cleans data for finalized block's ancestors down to, and including, the previously
+	// finalized one.
+
+	let first_new_finalized = notification.tree_route.get(0).unwrap_or(&notification.hash);
+	match client.header_metadata(*first_new_finalized) {
+		Ok(meta) => {
+			aux_keys.insert(aux_schema::block_weight_key(meta.parent));
+		},
+		Err(err) => {
+			warn!(target: "rrsc", "header lookup fail while cleaning data for block {}: {}", first_new_finalized.to_string(), err.to_string());
+		},
+	}
+
+	aux_keys.extend(notification.tree_route.iter().map(aux_schema::block_weight_key));
+
+	// Cleans data for stale branches.
+
+	// A safenet in case of malformed notification.
+	let height_limit = notification.header.number().saturating_sub(
+		notification.tree_route.len().saturated_into::<NumberFor<Block>>() + One::one(),
+	);
+	for head in notification.stale_heads.iter() {
+		let mut hash = *head;
+		// Insert stale blocks hashes until canonical chain is not reached.
+		// Soon or late we should hit an element already present within the `aux_keys` set.
+		while aux_keys.insert(aux_schema::block_weight_key(hash)) {
+			match client.header_metadata(hash) {
+				Ok(meta) => {
+					// This should never happen and must be considered a bug.
+					if meta.number <= height_limit {
+						warn!(target: "rrsc", "unexpected canonical chain state or malformed finality notification");
+						break
+					}
+					hash = meta.parent;
+				},
+				Err(err) => {
+					warn!(target: "rrsc", "header lookup fail while cleaning data for block {}: {}", head.to_string(), err.to_string());
+					break
+				},
+			}
+		}
+	}
+
+	aux_keys.into_iter().map(|val| (val, None)).collect()
+}
+
 async fn answer_requests<B: BlockT, C>(
 	mut request_rx: Receiver<RRSCRequest<B>>,
-	genesis_config: sc_consensus_slots::SlotDuration<RRSCGenesisConfiguration>,
+	config: Config,
 	client: Arc<C>,
 	epoch_changes: SharedEpochChanges<B, Epoch>,
 ) where
 	C: ProvideRuntimeApi<B>
-		+ ProvideCache<B>
 		+ ProvideUncles<B>
 		+ BlockchainEvents<B>
 		+ HeaderBackend<B>
@@ -575,7 +633,7 @@ async fn answer_requests<B: BlockT, C>(
 
 					let viable_epoch = epoch_changes
 						.viable_epoch(&epoch_descriptor, |slot| {
-							Epoch::genesis(&genesis_config, slot)
+							Epoch::genesis(&config.genesis_config, slot)
 						})
 						.ok_or_else(|| Error::<B>::FetchEpoch(parent_hash))?;
 
@@ -651,13 +709,10 @@ impl<B: BlockT> RRSCWorker<B> {
 	}
 }
 
-impl<B: BlockT> futures::Future for RRSCWorker<B> {
+impl<B: BlockT> Future for RRSCWorker<B> {
 	type Output = ();
 
-	fn poll(
-		mut self: Pin<&mut Self>,
-		cx: &mut futures::task::Context,
-	) -> futures::task::Poll<Self::Output> {
+	fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
 		self.inner.as_mut().poll(cx)
 	}
 }
@@ -689,10 +744,7 @@ impl<B, C, E, I, Error, SO, L, BS> sc_consensus_slots::SimpleSlotWorker<B>
 	for RRSCSlotWorker<B, C, E, I, SO, L, BS>
 where
 	B: BlockT,
-	C: ProvideRuntimeApi<B>
-		+ ProvideCache<B>
-		+ HeaderBackend<B>
-		+ HeaderMetadata<B, Error = ClientError>,
+	C: ProvideRuntimeApi<B> + HeaderBackend<B> + HeaderMetadata<B, Error = ClientError>,
 	C::Api: RRSCApi<B>,
 	E: Environment<B, Error = Error> + Sync,
 	E::Proposer: Proposer<B, Error = Error, Transaction = sp_api::TransactionFor<C, B>>,
@@ -732,14 +784,16 @@ where
 				parent.number().clone(),
 				slot,
 			)
-			.map_err(|e| ConsensusError::ChainLookup(format!("{:?}", e)))?
+			.map_err(|e| ConsensusError::ChainLookup(e.to_string()))?
 			.ok_or(sp_consensus::Error::InvalidAuthoritiesSet)
 	}
 
 	fn authorities_len(&self, epoch_descriptor: &Self::EpochData) -> Option<usize> {
 		self.epoch_changes
 			.shared_data()
-			.viable_epoch(&epoch_descriptor, |slot| Epoch::genesis(&self.config, slot))
+			.viable_epoch(&epoch_descriptor, |slot| {
+				Epoch::genesis(&self.config.genesis_config, slot)
+			})
 			.map(|epoch| epoch.as_ref().authorities.len())
 	}
 
@@ -754,7 +808,9 @@ where
 			slot,
 			self.epoch_changes
 				.shared_data()
-				.viable_epoch(&epoch_descriptor, |slot| Epoch::genesis(&self.config, slot))?
+				.viable_epoch(&epoch_descriptor, |slot| {
+					Epoch::genesis(&self.config.genesis_config, slot)
+				})?
 				.as_ref(),
 			&self.keystore,
 		);
@@ -772,7 +828,7 @@ where
 		slot: Slot,
 		epoch_descriptor: &ViableEpochDescriptor<B::Hash, NumberFor<B>, Epoch>,
 	) {
-		self.slot_notification_sinks.lock().retain_mut(|sink| {
+		RetainMut::retain_mut(&mut *self.slot_notification_sinks.lock(), |sink| {
 			match sink.try_send((slot, epoch_descriptor.clone())) {
 				Ok(()) => true,
 				Err(e) =>
@@ -786,69 +842,56 @@ where
 		});
 	}
 
-	fn pre_digest_data(
-		&self,
-		_slot: Slot,
-		claim: &Self::Claim,
-	) -> Vec<sp_runtime::DigestItem<B::Hash>> {
-		vec![<DigestItemFor<B> as CompatibleDigestItem>::rrsc_pre_digest(claim.0.clone())]
+	fn pre_digest_data(&self, _slot: Slot, claim: &Self::Claim) -> Vec<sp_runtime::DigestItem> {
+		vec![<DigestItem as CompatibleDigestItem>::rrsc_pre_digest(claim.0.clone())]
 	}
 
-	fn block_import_params(
+	async fn block_import_params(
 		&self,
-	) -> Box<
-		dyn Fn(
-				B::Header,
-				&B::Hash,
-				Vec<B::Extrinsic>,
-				StorageChanges<I::Transaction, B>,
-				Self::Claim,
-				Self::EpochData,
-			) -> Result<sc_consensus::BlockImportParams<B, I::Transaction>, sp_consensus::Error>
-			+ Send
-			+ 'static,
+		header: B::Header,
+		header_hash: &B::Hash,
+		body: Vec<B::Extrinsic>,
+		storage_changes: StorageChanges<<Self::BlockImport as BlockImport<B>>::Transaction, B>,
+		(_, public): Self::Claim,
+		epoch_descriptor: Self::EpochData,
+	) -> Result<
+		sc_consensus::BlockImportParams<B, <Self::BlockImport as BlockImport<B>>::Transaction>,
+		sp_consensus::Error,
 	> {
-		let keystore = self.keystore.clone();
-		Box::new(
-			move |header, header_hash, body, storage_changes, (_, public), epoch_descriptor| {
-				// sign the pre-sealed hash of the block and then
-				// add it to a digest item.
-				let public_type_pair = public.clone().into();
-				let public = public.to_raw_vec();
-				let signature = SyncCryptoStore::sign_with(
-					&*keystore,
-					<AuthorityId as AppKey>::ID,
-					&public_type_pair,
-					header_hash.as_ref(),
-				)
-				.map_err(|e| sp_consensus::Error::CannotSign(public.clone(), e.to_string()))?
-				.ok_or_else(|| {
-					sp_consensus::Error::CannotSign(
-						public.clone(),
-						"Could not find key in keystore.".into(),
-					)
-				})?;
-				let signature: AuthoritySignature = signature
-					.clone()
-					.try_into()
-					.map_err(|_| sp_consensus::Error::InvalidSignature(signature, public))?;
-				let digest_item =
-					<DigestItemFor<B> as CompatibleDigestItem>::rrsc_seal(signature.into());
-
-				let mut import_block = BlockImportParams::new(BlockOrigin::Own, header);
-				import_block.post_digests.push(digest_item);
-				import_block.body = Some(body);
-				import_block.state_action = StateAction::ApplyChanges(
-					sc_consensus::StorageChanges::Changes(storage_changes),
-				);
-				import_block.intermediates.insert(
-					Cow::from(INTERMEDIATE_KEY),
-					Box::new(RRSCIntermediate::<B> { epoch_descriptor }) as Box<_>,
-				);
-
-				Ok(import_block)
-			},
+		// sign the pre-sealed hash of the block and then
+		// add it to a digest item.
+		let public_type_pair = public.clone().into();
+		let public = public.to_raw_vec();
+		let signature = SyncCryptoStore::sign_with(
+			&*self.keystore,
+			<AuthorityId as AppKey>::ID,
+			&public_type_pair,
+			header_hash.as_ref(),
 		)
+		.map_err(|e| sp_consensus::Error::CannotSign(public.clone(), e.to_string()))?
+		.ok_or_else(|| {
+			sp_consensus::Error::CannotSign(
+				public.clone(),
+				"Could not find key in keystore.".into(),
+			)
+		})?;
+		let signature: AuthoritySignature = signature
+			.clone()
+			.try_into()
+			.map_err(|_| sp_consensus::Error::InvalidSignature(signature, public))?;
+		let digest_item = <DigestItem as CompatibleDigestItem>::rrsc_seal(signature.into());
+
+		let mut import_block = BlockImportParams::new(BlockOrigin::Own, header);
+		import_block.post_digests.push(digest_item);
+		import_block.body = Some(body);
+		import_block.state_action =
+			StateAction::ApplyChanges(sc_consensus::StorageChanges::Changes(storage_changes));
+		import_block.intermediates.insert(
+			Cow::from(INTERMEDIATE_KEY),
+			Box::new(RRSCIntermediate::<B> { epoch_descriptor }) as Box<_>,
+		);
+
+		Ok(import_block)
 	}
 
 	fn force_authoring(&self) -> bool {
@@ -892,7 +935,7 @@ where
 		self.telemetry.clone()
 	}
 
-	fn proposing_remaining_duration(&self, slot_info: &SlotInfo<B>) -> std::time::Duration {
+	fn proposing_remaining_duration(&self, slot_info: &SlotInfo<B>) -> Duration {
 		let parent_slot = find_pre_digest::<B>(&slot_info.chain_head).ok().map(|d| d.slot());
 
 		sc_consensus_slots::proposing_remaining_duration(
@@ -933,10 +976,7 @@ pub fn find_pre_digest<B: BlockT>(header: &B::Header) -> Result<PreDigest, Error
 /// Extract the RRSC epoch change digest from the given header, if it exists.
 fn find_next_epoch_digest<B: BlockT>(
 	header: &B::Header,
-) -> Result<Option<NextEpochDescriptor>, Error<B>>
-where
-	DigestItemFor<B>: CompatibleDigestItem,
-{
+) -> Result<Option<NextEpochDescriptor>, Error<B>> {
 	let mut epoch_digest: Option<_> = None;
 	for log in header.digest().logs() {
 		trace!(target: "rrsc", "Checking log {:?}, looking for epoch change digest.", log);
@@ -955,10 +995,7 @@ where
 /// Extract the RRSC config change digest from the given header, if it exists.
 fn find_next_config_digest<B: BlockT>(
 	header: &B::Header,
-) -> Result<Option<NextConfigDescriptor>, Error<B>>
-where
-	DigestItemFor<B>: CompatibleDigestItem,
-{
+) -> Result<Option<NextConfigDescriptor>, Error<B>> {
 	let mut config_digest: Option<_> = None;
 	for log in header.digest().logs() {
 		trace!(target: "rrsc", "Checking log {:?}, looking for epoch change digest.", log);
@@ -1144,8 +1181,7 @@ where
 		+ ProvideRuntimeApi<Block>
 		+ Send
 		+ Sync
-		+ AuxStore
-		+ ProvideCache<Block>,
+		+ AuxStore,
 	Client::Api: BlockBuilderApi<Block> + RRSCApi<Block>,
 	SelectChain: sp_consensus::SelectChain<Block>,
 	CAW: CanAuthorWith<Block> + Send + Sync,
@@ -1204,7 +1240,9 @@ where
 				.map_err(|e| Error::<Block>::ForkTree(Box::new(e)))?
 				.ok_or_else(|| Error::<Block>::FetchEpoch(parent_hash))?;
 			let viable_epoch = epoch_changes
-				.viable_epoch(&epoch_descriptor, |slot| Epoch::genesis(&self.config, slot))
+				.viable_epoch(&epoch_descriptor, |slot| {
+					Epoch::genesis(&self.config.genesis_config, slot)
+				})
 				.ok_or_else(|| Error::<Block>::FetchEpoch(parent_hash))?;
 
 			// We add one to the current slot to allow for some small drift.
@@ -1344,7 +1382,6 @@ where
 		+ HeaderMetadata<Block, Error = sp_blockchain::Error>
 		+ AuxStore
 		+ ProvideRuntimeApi<Block>
-		+ ProvideCache<Block>
 		+ Send
 		+ Sync,
 	Client::Api: RRSCApi<Block> + ApiExt<Block>,
@@ -1411,7 +1448,6 @@ where
 		+ HeaderMetadata<Block, Error = sp_blockchain::Error>
 		+ AuxStore
 		+ ProvideRuntimeApi<Block>
-		+ ProvideCache<Block>
 		+ Send
 		+ Sync,
 	Client::Api: RRSCApi<Block> + ApiExt<Block>,
@@ -1539,7 +1575,9 @@ where
 				old_epoch_changes = Some((*epoch_changes).clone());
 
 				let viable_epoch = epoch_changes
-					.viable_epoch(&epoch_descriptor, |slot| Epoch::genesis(&self.config, slot))
+					.viable_epoch(&epoch_descriptor, |slot| {
+						Epoch::genesis(&self.config.genesis_config, slot)
+					})
 					.ok_or_else(|| {
 						ConsensusError::ClientImport(Error::<Block>::FetchEpoch(parent_hash).into())
 					})?;
@@ -1590,8 +1628,12 @@ where
 							*block.header.parent_hash(),
 							next_epoch,
 						)
-						.map_err(|e| ConsensusError::ClientImport(format!("{:?}", e)))?;
-
+						.map_err(|e| {
+							ConsensusError::ClientImport(format!(
+								"Error importing epoch changes: {}",
+								e
+							))
+						})?;
 					Ok(())
 				};
 
@@ -1627,7 +1669,7 @@ where
 					parent_weight
 				} else {
 					aux_schema::load_block_weight(&*self.client, last_best)
-						.map_err(|e| ConsensusError::ChainLookup(format!("{:?}", e)))?
+						.map_err(|e| ConsensusError::ChainLookup(e.to_string()))?
 						.ok_or_else(|| {
 							ConsensusError::ChainLookup(
 								"No block weight for parent header.".to_string(),
@@ -1679,11 +1721,14 @@ where
 	Client: HeaderBackend<Block> + HeaderMetadata<Block, Error = sp_blockchain::Error>,
 {
 	let info = client.info();
+	if info.block_gap.is_none() {
+		epoch_changes.clear_gap();
+	}
 
 	let finalized_slot = {
 		let finalized_header = client
 			.header(BlockId::Hash(info.finalized_hash))
-			.map_err(|e| ConsensusError::ClientImport(format!("{:?}", e)))?
+			.map_err(|e| ConsensusError::ClientImport(e.to_string()))?
 			.expect(
 				"best finalized hash was given by client; finalized headers must exist in db; qed",
 			);
@@ -1700,7 +1745,7 @@ where
 			info.finalized_number,
 			finalized_slot,
 		)
-		.map_err(|e| ConsensusError::ClientImport(format!("{:?}", e)))?;
+		.map_err(|e| ConsensusError::ClientImport(e.to_string()))?;
 
 	Ok(())
 }
@@ -1716,15 +1761,26 @@ pub fn block_import<Client, Block: BlockT, I>(
 	client: Arc<Client>,
 ) -> ClientResult<(RRSCBlockImport<Block, Client, I>, RRSCLink<Block>)>
 where
-	Client: AuxStore + HeaderBackend<Block> + HeaderMetadata<Block, Error = sp_blockchain::Error>,
+	Client: AuxStore
+		+ HeaderBackend<Block>
+		+ HeaderMetadata<Block, Error = sp_blockchain::Error>
+		+ PreCommitActions<Block>
+		+ 'static,
 {
-	let epoch_changes = aux_schema::load_epoch_changes::<Block, _>(&*client, &config)?;
+	let epoch_changes =
+		aux_schema::load_epoch_changes::<Block, _>(&*client, &config.genesis_config)?;
 	let link = RRSCLink { epoch_changes: epoch_changes.clone(), config: config.clone() };
 
 	// NOTE: this isn't entirely necessary, but since we didn't use to prune the
 	// epoch tree it is useful as a migration, so that nodes prune long trees on
 	// startup rather than waiting until importing the next epoch change block.
 	prune_finalized(client.clone(), &mut epoch_changes.shared_data())?;
+
+	let client_clone = client.clone();
+	let on_finality = move |summary: &FinalityNotification<Block>| {
+		aux_storage_cleanup(client_clone.as_ref(), summary)
+	};
+	client.register_finality_action(Box::new(on_finality));
 
 	let import = RRSCBlockImport::new(client, epoch_changes, wrapped_block_import, config);
 
@@ -1761,7 +1817,6 @@ where
 		+ Sync
 		+ 'static,
 	Client: ProvideRuntimeApi<Block>
-		+ ProvideCache<Block>
 		+ HeaderBackend<Block>
 		+ HeaderMetadata<Block, Error = sp_blockchain::Error>
 		+ AuxStore
@@ -1785,4 +1840,75 @@ where
 	};
 
 	Ok(BasicQueue::new(verifier, Box::new(block_import), justification_import, spawner, registry))
+}
+
+/// Reverts aux data.
+pub fn revert<Block, Client, Backend>(
+	client: Arc<Client>,
+	backend: Arc<Backend>,
+	blocks: NumberFor<Block>,
+) -> ClientResult<()>
+where
+	Block: BlockT,
+	Client: AuxStore
+		+ HeaderMetadata<Block, Error = sp_blockchain::Error>
+		+ HeaderBackend<Block>
+		+ ProvideRuntimeApi<Block>
+		+ UsageProvider<Block>,
+	Client::Api: RRSCApi<Block>,
+	Backend: BackendT<Block>,
+{
+	let best_number = client.info().best_number;
+	let finalized = client.info().finalized_number;
+	let revertible = blocks.min(best_number - finalized);
+
+	let number = best_number - revertible;
+	let hash = client
+		.block_hash_from_id(&BlockId::Number(number))?
+		.ok_or(ClientError::Backend(format!(
+			"Unexpected hash lookup failure for block number: {}",
+			number
+		)))?;
+
+	// Revert epoch changes tree.
+
+	let config = Config::get(&*client)?;
+	let epoch_changes =
+		aux_schema::load_epoch_changes::<Block, Client>(&*client, config.genesis_config())?;
+	let mut epoch_changes = epoch_changes.shared_data();
+
+	if number == Zero::zero() {
+		// Special case, no epoch changes data were present on genesis.
+		*epoch_changes = EpochChangesFor::<Block, Epoch>::default();
+	} else {
+		epoch_changes.revert(descendent_query(&*client), hash, number);
+	}
+
+	// Remove block weights added after the revert point.
+
+	let mut weight_keys = HashSet::with_capacity(revertible.saturated_into());
+	let leaves = backend.blockchain().leaves()?.into_iter().filter(|&leaf| {
+		sp_blockchain::tree_route(&*client, hash, leaf)
+			.map(|route| route.retracted().is_empty())
+			.unwrap_or_default()
+	});
+	for leaf in leaves {
+		let mut hash = leaf;
+		// Insert parent after parent until we don't hit an already processed
+		// branch or we reach a direct child of the rollback point.
+		while weight_keys.insert(aux_schema::block_weight_key(hash)) {
+			let meta = client.header_metadata(hash)?;
+			if meta.number <= number + One::one() {
+				// We've reached a child of the revert point, stop here.
+				break
+			}
+			hash = client.header_metadata(hash)?.parent;
+		}
+	}
+	let weight_keys: Vec<_> = weight_keys.iter().map(|val| val.as_slice()).collect();
+
+	// Write epoch changes and remove weights in one shot.
+	aux_schema::write_epoch_changes::<Block, _, _>(&epoch_changes, |values| {
+		client.insert_aux(values, weight_keys.iter())
+	})
 }

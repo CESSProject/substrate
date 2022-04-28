@@ -30,11 +30,7 @@ use sc_consensus_epochs::{
 	descendent_query, EpochHeader, SharedEpochChanges, ViableEpochDescriptor,
 };
 use sp_keystore::SyncCryptoStorePtr;
-use std::{
-	borrow::Cow,
-	sync::{atomic, Arc},
-	time::SystemTime,
-};
+use std::{borrow::Cow, sync::Arc};
 
 use sc_consensus::{BlockImportParams, ForkChoiceStrategy, Verifier};
 use sp_api::{ProvideRuntimeApi, TransactionFor};
@@ -46,12 +42,13 @@ use cessp_consensus_rrsc::{
 	AuthorityId, RRSCApi, RRSCAuthorityWeight, ConsensusLog, RRSC_ENGINE_ID,
 };
 use sp_consensus_slots::Slot;
-use sp_inherents::{InherentData, InherentDataProvider, InherentIdentifier};
+use sp_inherents::InherentData;
 use sp_runtime::{
 	generic::{BlockId, Digest},
-	traits::{Block as BlockT, DigestFor, DigestItemFor, Header, Zero},
+	traits::{Block as BlockT, Header},
+	DigestItem,
 };
-use sp_timestamp::{InherentType, TimestampInherentData, INHERENT_IDENTIFIER};
+use sp_timestamp::TimestampInherentData;
 
 /// Provides RRSC-compatible predigests and BlockImportParams.
 /// Intended for use with RRSC runtimes.
@@ -120,7 +117,7 @@ where
 				pre_digest.slot(),
 			)
 			.map_err(|e| format!("failed to fetch epoch_descriptor: {}", e))?
-			.ok_or_else(|| format!("{:?}", sp_consensus::Error::InvalidAuthoritiesSet))?;
+			.ok_or_else(|| format!("{}", sp_consensus::Error::InvalidAuthoritiesSet))?;
 		// drop the lock
 		drop(epoch_changes);
 
@@ -153,7 +150,7 @@ where
 			return Err(Error::StringError("Cannot supply empty authority set!".into()))
 		}
 
-		let config = Config::get_or_compute(&*client)?;
+		let config = Config::get(&*client)?;
 
 		Ok(Self { config, client, keystore, epoch_changes, authorities })
 	}
@@ -171,7 +168,9 @@ where
 			.ok_or_else(|| sp_consensus::Error::InvalidAuthoritiesSet)?;
 
 		let epoch = epoch_changes
-			.viable_epoch(&epoch_descriptor, |slot| Epoch::genesis(&self.config, slot))
+			.viable_epoch(&epoch_descriptor, |slot| {
+				Epoch::genesis(self.config.genesis_config(), slot)
+			})
 			.ok_or_else(|| {
 				log::info!(target: "rrsc", "create_digest: no viable_epoch :(");
 				sp_consensus::Error::InvalidAuthoritiesSet
@@ -193,11 +192,7 @@ where
 {
 	type Transaction = TransactionFor<C, B>;
 
-	fn create_digest(
-		&self,
-		parent: &B::Header,
-		inherents: &InherentData,
-	) -> Result<DigestFor<B>, Error> {
+	fn create_digest(&self, parent: &B::Header, inherents: &InherentData) -> Result<Digest, Error> {
 		let slot = inherents
 			.rrsc_inherent_data()?
 			.ok_or_else(|| Error::StringError("No rrsc inherent data".into()))?;
@@ -207,7 +202,7 @@ where
 		let logs = if let Some((predigest, _)) =
 			authorship::claim_slot(slot, &epoch, &self.keystore)
 		{
-			vec![<DigestItemFor<B> as CompatibleDigestItem>::rrsc_pre_digest(predigest)]
+			vec![<DigestItem as CompatibleDigestItem>::rrsc_pre_digest(predigest)]
 		} else {
 			// well we couldn't claim a slot because this is an existing chain and we're not in the
 			// authorities. we need to tell RRSCBlockImport that the epoch has changed, and we put
@@ -244,13 +239,13 @@ where
 					});
 
 					vec![
-						DigestItemFor::<B>::PreRuntime(RRSC_ENGINE_ID, predigest.encode()),
-						DigestItemFor::<B>::Consensus(RRSC_ENGINE_ID, next_epoch.encode()),
+						DigestItem::PreRuntime(RRSC_ENGINE_ID, predigest.encode()),
+						DigestItem::Consensus(RRSC_ENGINE_ID, next_epoch.encode()),
 					]
 				},
 				ViableEpochDescriptor::UnimportedGenesis(_) => {
 					// since this is the genesis, secondary predigest works for now.
-					vec![DigestItemFor::<B>::PreRuntime(RRSC_ENGINE_ID, predigest.encode())]
+					vec![DigestItem::PreRuntime(RRSC_ENGINE_ID, predigest.encode())]
 				},
 			}
 		};
