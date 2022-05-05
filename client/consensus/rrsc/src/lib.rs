@@ -119,7 +119,7 @@ use sp_consensus::{
 	SelectChain,
 };
 use cessp_consensus_rrsc::inherents::RRSCInherentData;
-use sp_consensus_slots::Slot;
+use sp_consensus_slots::::{Slot, SlotDuration};
 use sp_core::{crypto::ByteArray, ExecutionContext};
 use sp_inherents::{CreateInherentDataProviders, InherentData, InherentDataProvider};
 use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
@@ -517,7 +517,7 @@ where
 		keystore,
 		epoch_changes: rrsc_link.epoch_changes.clone(),
 		slot_notification_sinks: slot_notification_sinks.clone(),
-		config: config.clone(),
+		config: rrsc_link.config.clone(),
 		block_proposal_slot_portion,
 		max_block_proposal_slot_portion,
 		telemetry,

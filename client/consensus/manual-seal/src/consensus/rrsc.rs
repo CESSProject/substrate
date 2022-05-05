@@ -277,22 +277,24 @@ where
 		// a quick check to see if we're in the authorities
 		let epoch = self.epoch(parent, slot)?;
 		let (authority, _) = self.authorities.first().expect("authorities is non-emptyp; qed");
-		let has_authority = epoch.authorities.iter().find(|(id, _)| *id == *authority).is_some();
+		let has_authority = epoch.authorities.iter().any(|(id, _)| *id == *authority);
 
 		if !has_authority {
 			log::info!(target: "manual-seal", "authority not found");
 			let timestamp = inherents
 				.timestamp_inherent_data()?
 				.ok_or_else(|| Error::StringError("No timestamp inherent data".into()))?;
-			let slot = *timestamp / self.config.slot_duration;
+
+			let slot = Slot::from_timestamp(timestamp, self.config.slot_duration());
+
 			// manually hard code epoch descriptor
 			epoch_descriptor = match epoch_descriptor {
 				ViableEpochDescriptor::Signaled(identifier, _header) =>
 					ViableEpochDescriptor::Signaled(
 						identifier,
 						EpochHeader {
-							start_slot: slot.into(),
-							end_slot: (slot * self.config.epoch_length).into(),
+							start_slot: slot,
+							end_slot: (*slot * self.config.genesis_config().epoch_length).into(),
 						},
 					),
 				_ => unreachable!(
@@ -307,69 +309,5 @@ where
 		);
 
 		Ok(())
-	}
-}
-
-/// Provide duration since unix epoch in millisecond for timestamp inherent.
-/// Mocks the timestamp inherent to always produce the timestamp for the next rrsc slot.
-pub struct SlotTimestampProvider {
-	time: atomic::AtomicU64,
-	slot_duration: u64,
-}
-
-impl SlotTimestampProvider {
-	/// Create a new mocked time stamp provider.
-	pub fn new<B, C>(client: Arc<C>) -> Result<Self, Error>
-	where
-		B: BlockT,
-		C: AuxStore + HeaderBackend<B> + ProvideRuntimeApi<B> + UsageProvider<B>,
-		C::Api: RRSCApi<B>,
-	{
-		let slot_duration = Config::get_or_compute(&*client)?.slot_duration;
-		let info = client.info();
-
-		// looks like this isn't the first block, rehydrate the fake time.
-		// otherwise we'd be producing blocks for older slots.
-		let time = if info.best_number != Zero::zero() {
-			let header = client.header(BlockId::Hash(info.best_hash))?.unwrap();
-			let slot = find_pre_digest::<B>(&header).unwrap().slot();
-			// add the slot duration so there's no collision of slots
-			(*slot * slot_duration) + slot_duration
-		} else {
-			// this is the first block, use the correct time.
-			let now = SystemTime::now();
-			now.duration_since(SystemTime::UNIX_EPOCH)
-				.map_err(|err| Error::StringError(format!("{}", err)))?
-				.as_millis() as u64
-		};
-
-		Ok(Self { time: atomic::AtomicU64::new(time), slot_duration })
-	}
-
-	/// Get the current slot number
-	pub fn slot(&self) -> u64 {
-		self.time.load(atomic::Ordering::SeqCst) / self.slot_duration
-	}
-}
-
-#[async_trait::async_trait]
-impl InherentDataProvider for SlotTimestampProvider {
-	fn provide_inherent_data(
-		&self,
-		inherent_data: &mut InherentData,
-	) -> Result<(), sp_inherents::Error> {
-		// we update the time here.
-		let duration: InherentType =
-			self.time.fetch_add(self.slot_duration, atomic::Ordering::SeqCst).into();
-		inherent_data.put_data(INHERENT_IDENTIFIER, &duration)?;
-		Ok(())
-	}
-
-	async fn try_handle_error(
-		&self,
-		_: &InherentIdentifier,
-		_: &[u8],
-	) -> Option<Result<(), sp_inherents::Error>> {
-		None
 	}
 }
