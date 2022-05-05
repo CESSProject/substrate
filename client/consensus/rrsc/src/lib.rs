@@ -119,7 +119,7 @@ use sp_consensus::{
 	SelectChain,
 };
 use cessp_consensus_rrsc::inherents::RRSCInherentData;
-use sp_consensus_slots::::{Slot, SlotDuration};
+use sp_consensus_slots::{Slot, SlotDuration};
 use sp_core::{crypto::ByteArray, ExecutionContext};
 use sp_inherents::{CreateInherentDataProviders, InherentData, InherentDataProvider};
 use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
@@ -685,7 +685,7 @@ impl<B: BlockT> RRSCWorkerHandle<B> {
 /// Worker for RRSC which implements `Future<Output=()>`. This must be polled.
 #[must_use]
 pub struct RRSCWorker<B: BlockT> {
-	inner: Pin<Box<dyn futures::Future<Output = ()> + Send + 'static>>,
+	inner: Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
 	slot_notification_sinks: SlotNotificationSinks<B>,
 	handle: RRSCWorkerHandle<B>,
 }
