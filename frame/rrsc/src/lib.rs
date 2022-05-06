@@ -879,6 +879,14 @@ impl<T: Config> Pallet<T> {
 	}
 
 	fn select_primary_authorities() -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities> {
+
+		let keys = Self::authorities()
+			.to_vec()
+			.iter()
+			.enumerate()
+			.map(|(index, a)| (a.0.clone(), index))
+			.collect::<Vec<_>>(); 
+
 		WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(Self::authorities().to_vec())
 				.expect("Initial number of primary authorities should be lower than T::MaxPrimaryAuthorities")
 	}
