@@ -97,9 +97,9 @@ pub type RRSCAuthorityWeight = u64;
 pub type RRSCBlockWeight = u32;
 
 /// Make a VRF transcript from given randomness, slot number and epoch.
-pub fn make_transcript(randomness: &Randomness, slot: Slot, epoch: u64) -> Transcript {
+pub fn make_transcript(randomness: &Randomness, /*slot: Slot,*/ epoch: u64) -> Transcript {
 	let mut transcript = Transcript::new(&RRSC_ENGINE_ID);
-	transcript.append_u64(b"slot number", *slot);
+	//transcript.append_u64(b"slot number", *slot);
 	transcript.append_u64(b"current epoch", epoch);
 	transcript.append_message(b"chain randomness", &randomness[..]);
 	transcript
@@ -107,11 +107,11 @@ pub fn make_transcript(randomness: &Randomness, slot: Slot, epoch: u64) -> Trans
 
 /// Make a VRF transcript data container
 #[cfg(feature = "std")]
-pub fn make_transcript_data(randomness: &Randomness, slot: Slot, epoch: u64) -> VRFTranscriptData {
+pub fn make_transcript_data(randomness: &Randomness, /*slot: Slot,*/ epoch: u64) -> VRFTranscriptData {
 	VRFTranscriptData {
 		label: &RRSC_ENGINE_ID,
 		items: vec![
-			("slot number", VRFTranscriptValue::U64(*slot)),
+			//("slot number", VRFTranscriptValue::U64(*slot)),
 			("current epoch", VRFTranscriptValue::U64(epoch)),
 			("chain randomness", VRFTranscriptValue::Bytes(randomness.to_vec())),
 		],

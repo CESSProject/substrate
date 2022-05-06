@@ -765,7 +765,7 @@ impl<T: Config> Pallet<T> {
 					.and_then(|pubkey| {
 						let transcript = cessp_consensus_rrsc::make_transcript(
 							&Self::randomness(),
-							current_slot,
+							//current_slot,
 							EpochIndex::<T>::get(),
 						);
 
@@ -887,6 +887,10 @@ impl<T: Config> Pallet<T> {
 			.map(|(index, a)| (a.0.clone(), index))
 			.collect::<Vec<_>>(); 
 
+		for (authority_id, authority_index) in keys {
+			let transcript = make_transcript(randomness, *epoch_index);
+			let transcript_data = make_transcript_data(randomness, *epoch_index);
+		}
 		WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(Self::authorities().to_vec())
 				.expect("Initial number of primary authorities should be lower than T::MaxPrimaryAuthorities")
 	}

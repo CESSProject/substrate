@@ -240,7 +240,7 @@ impl Config for Test {
 	type MaxAuthorities = ConstU32<10>;
 }
 
-pub fn go_to_block(n: u64, s: u64) {
+pub fn go_to_block(n: u64/*, s: u64*/) {
 	use frame_support::traits::OnFinalize;
 
 	RRSC::on_finalize(System::block_number());
@@ -254,7 +254,7 @@ pub fn go_to_block(n: u64, s: u64) {
 		System::parent_hash()
 	};
 
-	let pre_digest = make_secondary_plain_pre_digest(0, s.into());
+	let pre_digest = make_secondary_plain_pre_digest(0/*, s.into()*/);
 
 	System::reset_events();
 	System::initialize(&n, &parent_hash, &pre_digest);
@@ -306,10 +306,10 @@ pub fn make_primary_pre_digest(
 
 pub fn make_secondary_plain_pre_digest(
 	authority_index: cessp_consensus_rrsc::AuthorityIndex,
-	slot: cessp_consensus_rrsc::Slot,
+	//slot: cessp_consensus_rrsc::Slot,
 ) -> Digest {
 	let digest_data = cessp_consensus_rrsc::digests::PreDigest::SecondaryPlain(
-		cessp_consensus_rrsc::digests::SecondaryPlainPreDigest { authority_index, slot },
+		cessp_consensus_rrsc::digests::SecondaryPlainPreDigest { authority_index/*, slot*/ },
 	);
 	let log = DigestItem::PreRuntime(cessp_consensus_rrsc::RRSC_ENGINE_ID, digest_data.encode());
 	Digest { logs: vec![log] }
@@ -338,7 +338,7 @@ pub fn make_vrf_output(
 	pair: &cessp_consensus_rrsc::AuthorityPair,
 ) -> (VRFOutput, VRFProof, [u8; 32]) {
 	let pair = sp_core::sr25519::Pair::from_ref(pair).as_ref();
-	let transcript = cessp_consensus_rrsc::make_transcript(&RRSC::randomness(), slot, 0);
+	let transcript = cessp_consensus_rrsc::make_transcript(&RRSC::randomness(), /*slot,*/ 0);
 	let vrf_inout = pair.vrf_sign(transcript);
 	let vrf_randomness: sp_consensus_vrf::schnorrkel::Randomness =
 		vrf_inout.0.make_bytes::<[u8; 32]>(&cessp_consensus_rrsc::RRSC_VRF_INOUT_CONTEXT);
@@ -422,7 +422,7 @@ pub fn generate_equivocation_proof(
 
 	let make_header = || {
 		let parent_hash = System::parent_hash();
-		let pre_digest = make_secondary_plain_pre_digest(offender_authority_index, slot);
+		let pre_digest = make_secondary_plain_pre_digest(offender_authority_index/*, slot*/);
 		System::reset_events();
 		System::initialize(&current_block, &parent_hash, &pre_digest);
 		System::set_block_number(current_block);
@@ -448,7 +448,7 @@ pub fn generate_equivocation_proof(
 	seal_header(&mut h2);
 
 	// restore previous runtime state
-	go_to_block(current_block, *current_slot);
+	go_to_block(current_block/*, *current_slot*/);
 
 	cessp_consensus_rrsc::EquivocationProof {
 		slot,

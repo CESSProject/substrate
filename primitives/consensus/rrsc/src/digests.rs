@@ -51,7 +51,7 @@ pub struct SecondaryPlainPreDigest {
 	/// be aware of the author of a secondary-slot block.
 	pub authority_index: super::AuthorityIndex,
 	/// Slot
-	pub slot: Slot,
+	//pub slot: Slot,
 }
 
 /// RRSC secondary deterministic slot assignment with VRF outputs.
@@ -60,7 +60,7 @@ pub struct SecondaryVRFPreDigest {
 	/// Authority index
 	pub authority_index: super::AuthorityIndex,
 	/// Slot
-	pub slot: Slot,
+	//pub slot: Slot,
 	/// VRF output
 	pub vrf_output: VRFOutput,
 	/// VRF proof
