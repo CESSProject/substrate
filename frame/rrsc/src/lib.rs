@@ -43,7 +43,7 @@ use sp_std::prelude::*;
 use cessp_consensus_rrsc::{
 	digests::{NextConfigDescriptor, NextEpochDescriptor, PreDigest},
 	RRSCAuthorityWeight, RRSCEpochConfiguration, ConsensusLog, Epoch, EquivocationProof, Slot,
-	RRSC_ENGINE_ID,
+	RRSC_ENGINE_ID, RRSC_VRF_PREFIX
 };
 use schnorrkel::{keys::PublicKey, vrf::VRFInOut};
 use sp_consensus_vrf::schnorrkel as sp_schnorrkel;
@@ -582,12 +582,12 @@ impl<T: Config> Pallet<T> {
 		let next_randomness = NextRandomness::<T>::get();
 
 		// Primary Authorities participate in block generation during elected epoch
-		let primary_authorities = Self::select_primary_authorities();
+		let primary_authorities = Self::select_primary_authorities(&randomness, &epoch_index);
 		PrimaryAuthorities::<T>::put(primary_authorities.clone());
 
 		// Secondary Authorities participate in block generation during elected epoch 
 		// if Primary Authority fails to generate block.
-		let secondary_authorities = Self::select_secondary_authorities();
+		let secondary_authorities = Self::select_secondary_authorities(&randomness, &epoch_index);
 		SecondaryAuthorities::<T>::put(secondary_authorities.clone());
 
 		let next_epoch = NextEpochDescriptor {
@@ -878,7 +878,7 @@ impl<T: Config> Pallet<T> {
 		.ok()
 	}
 
-	fn select_primary_authorities() -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities> {
+	fn select_primary_authorities(randomness: &Randomness, epoch_index: u64) -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities> {
 
 		let keys = Self::authorities()
 			.to_vec()
@@ -895,13 +895,13 @@ impl<T: Config> Pallet<T> {
 				.expect("Initial number of primary authorities should be lower than T::MaxPrimaryAuthorities")
 	}
 	
-	fn select_secondary_authorities() -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities> {
+	fn select_secondary_authorities(randomness: &Randomness, epoch_index: u64) -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities> {
 		WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(Self::authorities().to_vec())
 				.expect("Initial number of secondary authorities should be lower than T::MaxSecondaryAuthorities")
 	}
 
 	fn check_threshold(inout: &VRFInOut, threshold: u128) -> bool {
-		u128::from_le_bytes(inout.make_bytes::<[u8; 16]>(BABE_VRF_PREFIX)) < threshold
+		u128::from_le_bytes(inout.make_bytes::<[u8; 16]>(RRSC_VRF_PREFIX)) < threshold
 	}
 
 	fn calculate_threshold(
