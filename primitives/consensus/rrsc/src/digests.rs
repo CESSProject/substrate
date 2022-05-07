@@ -50,8 +50,8 @@ pub struct SecondaryPlainPreDigest {
 	/// it makes things easier for higher-level users of the chain data to
 	/// be aware of the author of a secondary-slot block.
 	pub authority_index: super::AuthorityIndex,
-	// Slot
-	//pub slot: Slot,
+	/// Slot
+	pub slot: Slot,
 }
 
 /// RRSC secondary deterministic slot assignment with VRF outputs.
@@ -59,8 +59,8 @@ pub struct SecondaryPlainPreDigest {
 pub struct SecondaryVRFPreDigest {
 	/// Authority index
 	pub authority_index: super::AuthorityIndex,
-	// Slot
-	//pub slot: Slot,
+	/// Slot
+	pub slot: Slot,
 	/// VRF output
 	pub vrf_output: VRFOutput,
 	/// VRF proof
@@ -97,8 +97,8 @@ impl PreDigest {
 	pub fn slot(&self) -> Slot {
 		match self {
 			PreDigest::Primary(primary) => primary.slot,
-			//PreDigest::SecondaryPlain(secondary) => secondary.slot,
-			//PreDigest::SecondaryVRF(secondary) => secondary.slot,
+			PreDigest::SecondaryPlain(secondary) => secondary.slot,
+			PreDigest::SecondaryVRF(secondary) => secondary.slot,
 		}
 	}
 
