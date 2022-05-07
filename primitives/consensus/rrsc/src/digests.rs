@@ -50,7 +50,7 @@ pub struct SecondaryPlainPreDigest {
 	/// it makes things easier for higher-level users of the chain data to
 	/// be aware of the author of a secondary-slot block.
 	pub authority_index: super::AuthorityIndex,
-	/// Slot
+	// Slot
 	//pub slot: Slot,
 }
 
@@ -59,7 +59,7 @@ pub struct SecondaryPlainPreDigest {
 pub struct SecondaryVRFPreDigest {
 	/// Authority index
 	pub authority_index: super::AuthorityIndex,
-	/// Slot
+	// Slot
 	//pub slot: Slot,
 	/// VRF output
 	pub vrf_output: VRFOutput,
@@ -97,8 +97,8 @@ impl PreDigest {
 	pub fn slot(&self) -> Slot {
 		match self {
 			PreDigest::Primary(primary) => primary.slot,
-			PreDigest::SecondaryPlain(secondary) => secondary.slot,
-			PreDigest::SecondaryVRF(secondary) => secondary.slot,
+			//PreDigest::SecondaryPlain(secondary) => secondary.slot,
+			//PreDigest::SecondaryVRF(secondary) => secondary.slot,
 		}
 	}
 
