@@ -240,7 +240,7 @@ impl Config for Test {
 	type MaxAuthorities = ConstU32<10>;
 }
 
-pub fn go_to_block(n: u64/*, s: u64*/) {
+pub fn go_to_block(n: u64, s: u64) {
 	use frame_support::traits::OnFinalize;
 
 	RRSC::on_finalize(System::block_number());
