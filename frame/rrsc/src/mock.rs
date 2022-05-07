@@ -254,7 +254,7 @@ pub fn go_to_block(n: u64/*, s: u64*/) {
 		System::parent_hash()
 	};
 
-	let pre_digest = make_secondary_plain_pre_digest(0/*, s.into()*/);
+	let pre_digest = make_secondary_plain_pre_digest(0, s.into());
 
 	System::reset_events();
 	System::initialize(&n, &parent_hash, &pre_digest);
@@ -306,10 +306,10 @@ pub fn make_primary_pre_digest(
 
 pub fn make_secondary_plain_pre_digest(
 	authority_index: cessp_consensus_rrsc::AuthorityIndex,
-	//slot: cessp_consensus_rrsc::Slot,
+	slot: cessp_consensus_rrsc::Slot,
 ) -> Digest {
 	let digest_data = cessp_consensus_rrsc::digests::PreDigest::SecondaryPlain(
-		cessp_consensus_rrsc::digests::SecondaryPlainPreDigest { authority_index/*, slot*/ },
+		cessp_consensus_rrsc::digests::SecondaryPlainPreDigest { authority_index, slot },
 	);
 	let log = DigestItem::PreRuntime(cessp_consensus_rrsc::RRSC_ENGINE_ID, digest_data.encode());
 	Digest { logs: vec![log] }
@@ -317,14 +317,14 @@ pub fn make_secondary_plain_pre_digest(
 
 pub fn make_secondary_vrf_pre_digest(
 	authority_index: cessp_consensus_rrsc::AuthorityIndex,
-	//slot: cessp_consensus_rrsc::Slot,
+	slot: cessp_consensus_rrsc::Slot,
 	vrf_output: VRFOutput,
 	vrf_proof: VRFProof,
 ) -> Digest {
 	let digest_data = cessp_consensus_rrsc::digests::PreDigest::SecondaryVRF(
 		cessp_consensus_rrsc::digests::SecondaryVRFPreDigest {
 			authority_index,
-			//slot,
+			slot,
 			vrf_output,
 			vrf_proof,
 		},
@@ -422,7 +422,7 @@ pub fn generate_equivocation_proof(
 
 	let make_header = || {
 		let parent_hash = System::parent_hash();
-		let pre_digest = make_secondary_plain_pre_digest(offender_authority_index/*, slot*/);
+		let pre_digest = make_secondary_plain_pre_digest(offender_authority_index, slot);
 		System::reset_events();
 		System::initialize(&current_block, &parent_hash, &pre_digest);
 		System::set_block_number(current_block);
@@ -448,7 +448,7 @@ pub fn generate_equivocation_proof(
 	seal_header(&mut h2);
 
 	// restore previous runtime state
-	go_to_block(current_block/*, *current_slot*/);
+	go_to_block(current_block, *current_slot);
 
 	cessp_consensus_rrsc::EquivocationProof {
 		slot,
