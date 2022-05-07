@@ -43,7 +43,7 @@ use sp_std::prelude::*;
 use cessp_consensus_rrsc::{
 	digests::{NextConfigDescriptor, NextEpochDescriptor, PreDigest},
 	RRSCAuthorityWeight, RRSCEpochConfiguration, ConsensusLog, Epoch, EquivocationProof, Slot,
-	RRSC_ENGINE_ID, RRSC_VRF_PREFIX
+	RRSC_ENGINE_ID, //RRSC_VRF_PREFIX
 };
 use schnorrkel::{keys::PublicKey, vrf::VRFInOut};
 use sp_consensus_vrf::schnorrkel as sp_schnorrkel;
@@ -900,9 +900,9 @@ impl<T: Config> Pallet<T> {
 				.expect("Initial number of secondary authorities should be lower than T::MaxSecondaryAuthorities")
 	}
 
-	fn check_threshold(inout: &VRFInOut, threshold: u128) -> bool {
-		u128::from_le_bytes(inout.make_bytes::<[u8; 16]>(RRSC_VRF_PREFIX)) < threshold
-	}
+	// fn check_threshold(inout: &VRFInOut, threshold: u128) -> bool {
+	// 	u128::from_le_bytes(inout.make_bytes::<[u8; 16]>(RRSC_VRF_PREFIX)) < threshold
+	// }
 
 	fn calculate_threshold(
 		authorities: &[(AuthorityId, RRSCAuthorityWeight)],
