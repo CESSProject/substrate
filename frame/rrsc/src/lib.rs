@@ -582,12 +582,12 @@ impl<T: Config> Pallet<T> {
 		let next_randomness = NextRandomness::<T>::get();
 
 		// Primary Authorities participate in block generation during elected epoch
-		let primary_authorities = Self::select_primary_authorities(&randomness, &epoch_index);
+		let primary_authorities = Self::select_primary_authorities();
 		PrimaryAuthorities::<T>::put(primary_authorities.clone());
 
 		// Secondary Authorities participate in block generation during elected epoch 
 		// if Primary Authority fails to generate block.
-		let secondary_authorities = Self::select_secondary_authorities(&randomness, &epoch_index);
+		let secondary_authorities = Self::select_secondary_authorities();
 		SecondaryAuthorities::<T>::put(secondary_authorities.clone());
 
 		let next_epoch = NextEpochDescriptor {
@@ -878,12 +878,12 @@ impl<T: Config> Pallet<T> {
 		.ok()
 	}
 
-	fn select_primary_authorities(randomness: &Randomness, epoch_index: u64) -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities> {
+	fn select_primary_authorities() -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities> {
 		WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(Self::authorities().to_vec())
 				.expect("Initial number of primary authorities should be lower than T::MaxPrimaryAuthorities")
 	}
 	
-	fn select_secondary_authorities(randomness: &Randomness, epoch_index: u64) -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities> {
+	fn select_secondary_authorities() -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities> {
 		WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(Self::authorities().to_vec())
 				.expect("Initial number of secondary authorities should be lower than T::MaxSecondaryAuthorities")
 	}
