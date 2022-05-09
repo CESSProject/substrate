@@ -54,7 +54,7 @@ use jsonrpc_derive::rpc;
 type SharedAuthoritySet<TBl> =
 	sc_finality_grandpa::SharedAuthoritySet<<TBl as BlockT>::Hash, NumberFor<TBl>>;
 type SharedEpochChanges<TBl> =
-	sc_consensus_epochs::SharedEpochChanges<TBl, sc_consensus_rrsc::Epoch>;
+	sc_consensus_epochs::SharedEpochChanges<TBl, cessc_consensus_rrsc::Epoch>;
 
 /// Error type used by this crate.
 #[derive(Debug, thiserror::Error)]
@@ -111,9 +111,9 @@ pub struct LightSyncState<Block: BlockT> {
 	pub finalized_block_header: <Block as BlockT>::Header,
 	/// The epoch changes tree for rrsc.
 	#[serde(serialize_with = "serialize_encoded")]
-	pub rrsc_epoch_changes: sc_consensus_epochs::EpochChangesFor<Block, sc_consensus_rrsc::Epoch>,
+	pub rrsc_epoch_changes: sc_consensus_epochs::EpochChangesFor<Block, cessc_consensus_rrsc::Epoch>,
 	/// The rrsc weight of the finalized block.
-	pub rrsc_finalized_block_weight: sc_consensus_rrsc::RRSCBlockWeight,
+	pub rrsc_finalized_block_weight: cessc_consensus_rrsc::RRSCBlockWeight,
 	/// The authority set for grandpa.
 	#[serde(serialize_with = "serialize_encoded")]
 	pub grandpa_authority_set:
@@ -165,7 +165,7 @@ where
 			.ok_or_else(|| sp_blockchain::Error::MissingHeader(finalized_hash.to_string()))?;
 
 		let finalized_block_weight =
-			sc_consensus_rrsc::aux_schema::load_block_weight(&*self.client, finalized_hash)?
+			cessc_consensus_rrsc::aux_schema::load_block_weight(&*self.client, finalized_hash)?
 				.ok_or_else(|| Error::LoadingBlockWeightFailed(finalized_hash))?;
 
 		Ok(LightSyncState {
