@@ -765,7 +765,7 @@ impl<T: Config> Pallet<T> {
 					.and_then(|pubkey| {
 						let transcript = cessp_consensus_rrsc::make_transcript(
 							&Self::randomness(),
-							current_slot,
+							//current_slot,
 							EpochIndex::<T>::get(),
 						);
 
