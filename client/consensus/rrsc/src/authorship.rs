@@ -186,7 +186,7 @@ pub fn claim_slot(
 	keystore: &SyncCryptoStorePtr,
 ) -> Option<(PreDigest, AuthorityId)> {
 	let authorities = epoch
-		.primary_authorities
+		.authorities
 		.iter()
 		.enumerate()
 		.map(|(index, a)| (a.0.clone(), index))
@@ -230,9 +230,9 @@ fn primary_slot_author(
 	keystore: &SyncCryptoStorePtr,
 	keys: &[(AuthorityId, usize)],
 ) -> Option<(PreDigest, AuthorityId)> {
-	let Epoch { primary_authorities, secondary_authorities, randomness, epoch_index, .. } = epoch;
+	let Epoch { authorities, primary_authorities, secondary_authorities, randomness, epoch_index, .. } = epoch;
 
-	if primary_authorities.is_empty() {
+	if authorities.is_empty() {
 		info!(target: "rrsc", "primary_authorities is empty");
 		return None
 	}
