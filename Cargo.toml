@@ -30,6 +30,7 @@ members = [
 	"client/consensus/epochs",
 	"client/consensus/manual-seal",
 	"client/consensus/pow",
+	"client/consensus/rrsc",
 	"client/consensus/slots",
 	"client/consensus/uncles",
 	"client/db",

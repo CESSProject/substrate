@@ -890,6 +890,56 @@ dependencies = [
 ]
 
 [[package]]
+name = "cessc-consensus-rrsc"
+version = "0.10.0-dev"
+dependencies = [
+ "async-trait",
+ "cessp-consensus-rrsc",
+ "fork-tree",
+ "futures 0.3.19",
+ "log 0.4.14",
+ "merlin",
+ "num-bigint",
+ "num-rational 0.2.4",
+ "num-traits",
+ "parity-scale-codec",
+ "parking_lot 0.12.0",
+ "rand 0.7.3",
+ "rand_chacha 0.2.2",
+ "retain_mut",
+ "sc-block-builder",
+ "sc-client-api",
+ "sc-consensus",
+ "sc-consensus-epochs",
+ "sc-consensus-slots",
+ "sc-keystore",
+ "sc-network",
+ "sc-network-test",
+ "sc-telemetry",
+ "schnorrkel",
+ "serde",
+ "sp-api",
+ "sp-application-crypto",
+ "sp-block-builder",
+ "sp-blockchain",
+ "sp-consensus",
+ "sp-consensus-slots",
+ "sp-consensus-vrf",
+ "sp-core",
+ "sp-inherents",
+ "sp-io",
+ "sp-keystore",
+ "sp-runtime",
+ "sp-timestamp",
+ "sp-tracing",
+ "sp-version",
+ "substrate-prometheus-endpoint",
+ "substrate-test-runtime-client",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "cessp-consensus-rrsc"
 version = "0.10.0-dev"
 dependencies = [
