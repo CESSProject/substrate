@@ -17,7 +17,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 //! RRSC authority selection and slot claiming.
-
+use log::{debug, info, log, trace, warn};
 use super::Epoch;
 use codec::Encode;
 use schnorrkel::{keys::PublicKey, vrf::VRFInOut};
@@ -248,6 +248,7 @@ fn primary_slot_author(
 		authority_id.as_ref(),
 		transcript_data,
 	);
+	info!(target: "rrsc", "before pre digest");
 	if let Ok(Some(signature)) = result {
 		let public = PublicKey::from_bytes(&authority_id.to_raw_vec()).ok()?;
 		let inout = signature.output.attach_input_hash(&public, transcript).ok()?;
@@ -258,7 +259,7 @@ fn primary_slot_author(
 			vrf_proof: VRFProof(signature.proof),
 			authority_index: *authority_index as u32,
 		});
-
+		info!(target: "rrsc", "return pre digest {:?}", pre_digest);
 		return Some((pre_digest, authority_id.clone()))
 	};
 	None
