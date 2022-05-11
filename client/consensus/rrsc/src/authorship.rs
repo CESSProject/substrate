@@ -233,6 +233,7 @@ fn primary_slot_author(
 	let Epoch { primary_authorities, secondary_authorities, randomness, epoch_index, .. } = epoch;
 
 	if primary_authorities.is_empty() {
+		info!(target: "rrsc", "primary_authorities is empty");
 		return None
 	}
 
