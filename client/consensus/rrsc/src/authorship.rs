@@ -17,17 +17,21 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 //! RRSC authority selection and slot claiming.
+
 use super::Epoch;
-use codec::Encode;
-use schnorrkel::{keys::PublicKey, vrf::VRFInOut};
-use sp_application_crypto::AppKey;
 use cessp_consensus_rrsc::{
 	digests::{PreDigest, PrimaryPreDigest, SecondaryPlainPreDigest, SecondaryVRFPreDigest},
 	make_transcript, make_transcript_data, AuthorityId, RRSCAuthorityWeight, Slot, RRSC_VRF_PREFIX,
 };
+use codec::Encode;
+use schnorrkel::{keys::PublicKey, vrf::VRFInOut};
+use sp_application_crypto::AppKey;
 use sp_consensus_vrf::schnorrkel::{VRFOutput, VRFProof};
 use sp_core::{blake2_256, crypto::ByteArray, U256};
 use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
+use pallet_rrsc::{ Pallet, Config };
+
+
 
 /// Calculates the primary selection threshold for a given authority, taking
 /// into account `c` (`1 - c` represents the probability of a slot being empty).
@@ -42,8 +46,8 @@ pub(super) fn calculate_primary_threshold(
 
 	let c = c.0 as f64 / c.1 as f64;
 
-	let theta = authorities[authority_index].1 as f64 /
-		authorities.iter().map(|(_, weight)| weight).sum::<u64>() as f64;
+	let theta = authorities[authority_index].1 as f64
+		/ authorities.iter().map(|(_, weight)| weight).sum::<u64>() as f64;
 
 	assert!(theta > 0.0, "authority with weight 0.");
 
@@ -100,7 +104,7 @@ pub(super) fn secondary_slot_author(
 	randomness: [u8; 32],
 ) -> Option<&AuthorityId> {
 	if authorities.is_empty() {
-		return None
+		return None;
 	}
 
 	let rand = U256::from((randomness, slot).using_encoded(blake2_256));
@@ -129,7 +133,7 @@ fn claim_secondary_slot(
 	let Epoch { authorities, randomness, epoch_index, .. } = epoch;
 
 	if authorities.is_empty() {
-		return None
+		return None;
 	}
 
 	let expected_author = secondary_slot_author(slot, authorities, *randomness)?;
@@ -167,7 +171,7 @@ fn claim_secondary_slot(
 			};
 
 			if let Some(pre_digest) = pre_digest {
-				return Some((pre_digest, authority_id.clone()))
+				return Some((pre_digest, authority_id.clone()));
 			}
 		}
 	}
@@ -185,7 +189,7 @@ pub fn claim_slot(
 	keystore: &SyncCryptoStorePtr,
 ) -> Option<(PreDigest, AuthorityId)> {
 	let authorities = epoch
-		.authorities
+		.primary_authorities
 		.iter()
 		.enumerate()
 		.map(|(index, a)| (a.0.clone(), index))
@@ -201,9 +205,9 @@ pub fn claim_slot_using_keys(
 	keystore: &SyncCryptoStorePtr,
 	keys: &[(AuthorityId, usize)],
 ) -> Option<(PreDigest, AuthorityId)> {
-	primary_slot_author(slot, epoch, epoch.config.c, keystore, &keys).or_else(|| {
-		if epoch.config.allowed_slots.is_secondary_plain_slots_allowed() ||
-			epoch.config.allowed_slots.is_secondary_vrf_slots_allowed()
+	primary_slot_author(slot, epoch, /*epoch.config.c,*/ keystore, &keys).or_else(|| {
+		if epoch.config.allowed_slots.is_secondary_plain_slots_allowed()
+			|| epoch.config.allowed_slots.is_secondary_vrf_slots_allowed()
 		{
 			claim_secondary_slot(
 				slot,
@@ -225,20 +229,27 @@ pub fn claim_slot_using_keys(
 fn primary_slot_author(
 	slot: Slot,
 	epoch: &Epoch,
-	c: (u64, u64),
+	// c: (u64, u64),
 	keystore: &SyncCryptoStorePtr,
 	keys: &[(AuthorityId, usize)],
 ) -> Option<(PreDigest, AuthorityId)> {
-	let Epoch { authorities, primary_authorities, secondary_authorities, randomness, epoch_index, .. } = epoch;
+	let Epoch {
+		// authorities,
+		primary_authorities,
+		// secondary_authorities,
+		randomness,
+		epoch_index,
+		..
+	} = epoch;
 
-	if authorities.is_empty() {
-		return None
+	if primary_authorities.is_empty() {
+		return None;
 	}
 
 	let slot_autority_index = *slot as usize % keys.len();
-	let (authority_id, authority_index) = &keys[slot_autority_index]; 
-		
-	let transcript = make_transcript(randomness, /*slot,*/ *epoch_index);
+	let (authority_id, authority_index) = &keys[slot_autority_index];
+
+	// let transcript = make_transcript(randomness, /*slot,*/ *epoch_index);
 	let transcript_data = make_transcript_data(randomness, /*slot,*/ *epoch_index);
 
 	let result = SyncCryptoStore::sr25519_vrf_sign(
@@ -248,16 +259,16 @@ fn primary_slot_author(
 		transcript_data,
 	);
 	if let Ok(Some(signature)) = result {
-		let public = PublicKey::from_bytes(&authority_id.to_raw_vec()).ok()?;
-		let inout = signature.output.attach_input_hash(&public, transcript).ok()?;
-		
+		// let public = PublicKey::from_bytes(&authority_id.to_raw_vec()).ok()?;
+		// let inout = signature.output.attach_input_hash(&public, transcript).ok()?;
+
 		let pre_digest = PreDigest::Primary(PrimaryPreDigest {
 			slot,
 			vrf_output: VRFOutput(signature.output),
 			vrf_proof: VRFProof(signature.proof),
 			authority_index: *authority_index as u32,
 		});
-		return Some((pre_digest, authority_id.clone()))
+		return Some((pre_digest, authority_id.clone()));
 	};
 	None
 }
@@ -265,8 +276,8 @@ fn primary_slot_author(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use sc_keystore::LocalKeystore;
 	use cessp_consensus_rrsc::{AllowedSlots, AuthorityId, RRSCEpochConfiguration};
+	use sc_keystore::LocalKeystore;
 	use sp_core::{crypto::Pair as _, sr25519::Pair};
 	use std::sync::Arc;
 
@@ -285,11 +296,23 @@ mod tests {
 			(AuthorityId::from(Pair::generate().0.public()), 7),
 		];
 
+		let primary_authorities = vec![
+			(AuthorityId::from(Pair::generate().0.public()), 5),
+			(AuthorityId::from(Pair::generate().0.public()), 7),
+		];
+
+		let secondary_authorities = vec![
+			(AuthorityId::from(Pair::generate().0.public()), 5),
+			(AuthorityId::from(Pair::generate().0.public()), 7),
+		];
+
 		let mut epoch = Epoch {
 			epoch_index: 10,
 			start_slot: 0.into(),
 			duration: 20,
 			authorities: authorities.clone(),
+			primary_authorities: primary_authorities.clone(),
+			secondary_authorities: secondary_authorities.clone(),
 			randomness: Default::default(),
 			config: RRSCEpochConfiguration {
 				c: (3, 10),
@@ -300,6 +323,8 @@ mod tests {
 		assert!(claim_slot(10.into(), &epoch, &keystore).is_none());
 
 		epoch.authorities.push((valid_public_key.clone().into(), 10));
+		epoch.primary_authorities.push((valid_public_key.clone().into(), 10));
+		epoch.secondary_authorities.push((valid_public_key.clone().into(), 10));
 		assert_eq!(claim_slot(10.into(), &epoch, &keystore).unwrap().1, valid_public_key.into());
 	}
 }

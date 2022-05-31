@@ -89,6 +89,7 @@ use prometheus_endpoint::Registry;
 use retain_mut::RetainMut;
 use schnorrkel::SignatureError;
 
+use cessp_consensus_rrsc::inherents::RRSCInherentData;
 use sc_client_api::{
 	backend::AuxStore, AuxDataOperations, Backend as BackendT, BlockchainEvents,
 	FinalityNotification, PreCommitActions, ProvideUncles, UsageProvider,
@@ -118,7 +119,6 @@ use sp_consensus::{
 	BlockOrigin, CacheKeyId, CanAuthorWith, Environment, Error as ConsensusError, Proposer,
 	SelectChain,
 };
-use cessp_consensus_rrsc::inherents::RRSCInherentData;
 use sp_consensus_slots::{Slot, SlotDuration};
 use sp_core::{crypto::ByteArray, ExecutionContext};
 use sp_inherents::{CreateInherentDataProviders, InherentData, InherentDataProvider};
@@ -129,17 +129,17 @@ use sp_runtime::{
 	DigestItem,
 };
 
-pub use sc_consensus_slots::SlotProportion;
-pub use sp_consensus::SyncOracle;
 pub use cessp_consensus_rrsc::{
 	digests::{
 		CompatibleDigestItem, NextConfigDescriptor, NextEpochDescriptor, PreDigest,
 		PrimaryPreDigest, SecondaryPlainPreDigest,
 	},
-	AuthorityId, AuthorityPair, AuthoritySignature, RRSCApi, RRSCAuthorityWeight, RRSCBlockWeight,
-	RRSCEpochConfiguration, RRSCGenesisConfiguration, ConsensusLog, RRSC_ENGINE_ID,
+	AuthorityId, AuthorityPair, AuthoritySignature, ConsensusLog, RRSCApi, RRSCAuthorityWeight,
+	RRSCBlockWeight, RRSCEpochConfiguration, RRSCGenesisConfiguration, RRSC_ENGINE_ID,
 	VRF_OUTPUT_LENGTH,
 };
+pub use sc_consensus_slots::SlotProportion;
+pub use sp_consensus::SyncOracle;
 
 pub use aux_schema::load_block_weight as block_weight;
 
@@ -350,7 +350,7 @@ pub static INTERMEDIATE_KEY: &[u8] = b"rrsc1";
 
 /// Configuration for RRSC used for defining block verification parameters as
 /// well as authoring (e.g. the slot duration).
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Config {
 	genesis_config: RRSCGenesisConfiguration,
 }
@@ -383,9 +383,8 @@ impl Config {
 		} else {
 			return Err(sp_blockchain::Error::VersionInvalid(
 				"Unsupported or invalid RRSCApi version".to_string(),
-			))
+			));
 		};
-
 		Ok(Config { genesis_config })
 	}
 
@@ -586,13 +585,13 @@ fn aux_storage_cleanup<C: HeaderMetadata<Block>, Block: BlockT>(
 					// This should never happen and must be considered a bug.
 					if meta.number <= height_limit {
 						warn!(target: "rrsc", "unexpected canonical chain state or malformed finality notification");
-						break
+						break;
 					}
 					hash = meta.parent;
 				},
 				Err(err) => {
 					warn!(target: "rrsc", "header lookup fail while cleaning data for block {}: {}", head.to_string(), err.to_string());
-					break
+					break;
 				},
 			}
 		}
@@ -831,13 +830,14 @@ where
 		RetainMut::retain_mut(&mut *self.slot_notification_sinks.lock(), |sink| {
 			match sink.try_send((slot, epoch_descriptor.clone())) {
 				Ok(()) => true,
-				Err(e) =>
+				Err(e) => {
 					if e.is_full() {
 						warn!(target: "rrsc", "Trying to notify a slot but the channel is full");
 						true
 					} else {
 						false
-					},
+					}
+				},
 			}
 		});
 	}
@@ -909,7 +909,7 @@ where
 					self.client.info().finalized_number,
 					slot,
 					self.logging_target(),
-				)
+				);
 			}
 		}
 		false
@@ -958,7 +958,7 @@ pub fn find_pre_digest<B: BlockT>(header: &B::Header) -> Result<PreDigest, Error
 		return Ok(PreDigest::SecondaryPlain(SecondaryPlainPreDigest {
 			slot: 0.into(),
 			authority_index: 0,
-		}))
+		}));
 	}
 
 	let mut pre_digest: Option<_> = None;
@@ -982,8 +982,9 @@ fn find_next_epoch_digest<B: BlockT>(
 		trace!(target: "rrsc", "Checking log {:?}, looking for epoch change digest.", log);
 		let log = log.try_to::<ConsensusLog>(OpaqueDigestItemId::Consensus(&RRSC_ENGINE_ID));
 		match (log, epoch_digest.is_some()) {
-			(Some(ConsensusLog::NextEpochData(_)), true) =>
-				return Err(rrsc_err(Error::MultipleEpochChangeDigests)),
+			(Some(ConsensusLog::NextEpochData(_)), true) => {
+				return Err(rrsc_err(Error::MultipleEpochChangeDigests))
+			},
 			(Some(ConsensusLog::NextEpochData(epoch)), false) => epoch_digest = Some(epoch),
 			_ => trace!(target: "rrsc", "Ignoring digest not meant for us"),
 		}
@@ -1001,8 +1002,9 @@ fn find_next_config_digest<B: BlockT>(
 		trace!(target: "rrsc", "Checking log {:?}, looking for epoch change digest.", log);
 		let log = log.try_to::<ConsensusLog>(OpaqueDigestItemId::Consensus(&RRSC_ENGINE_ID));
 		match (log, config_digest.is_some()) {
-			(Some(ConsensusLog::NextConfigData(_)), true) =>
-				return Err(rrsc_err(Error::MultipleConfigChangeDigests)),
+			(Some(ConsensusLog::NextConfigData(_)), true) => {
+				return Err(rrsc_err(Error::MultipleConfigChangeDigests))
+			},
 			(Some(ConsensusLog::NextConfigData(config)), false) => config_digest = Some(config),
 			_ => trace!(target: "rrsc", "Ignoring digest not meant for us"),
 		}
@@ -1065,7 +1067,7 @@ where
 				e,
 			);
 
-			return Ok(())
+			return Ok(());
 		}
 
 		let inherent_res = self
@@ -1097,7 +1099,7 @@ where
 		// don't report any equivocations during initial sync
 		// as they are most likely stale.
 		if *origin == BlockOrigin::NetworkInitialSync {
-			return Ok(())
+			return Ok(());
 		}
 
 		// check if authorship of this header is an equivocation and return a proof if so.
@@ -1147,7 +1149,7 @@ where
 				Some(proof) => proof,
 				None => {
 					debug!(target: "rrsc", "Equivocation offender is not part of the authority set.");
-					return Ok(())
+					return Ok(());
 				},
 			},
 		};
@@ -1209,7 +1211,7 @@ where
 			// read it from the state after import. We also skip all verifications
 			// because there's no parent state and we trust the sync module to verify
 			// that the state is correct and finalized.
-			return Ok((block, Default::default()))
+			return Ok((block, Default::default()));
 		}
 
 		debug!(target: "rrsc", "We have {:?} logs in this header", block.header.digest().logs().len());
@@ -1410,11 +1412,12 @@ where
 		let import_result = self.inner.import_block(block, new_cache).await;
 		let aux = match import_result {
 			Ok(ImportResult::Imported(aux)) => aux,
-			Ok(r) =>
+			Ok(r) => {
 				return Err(ConsensusError::ClientImport(format!(
 					"Unexpected import result: {:?}",
 					r
-				))),
+				)))
+			},
 			Err(r) => return Err(r.into()),
 		};
 
@@ -1470,14 +1473,14 @@ where
 				// When re-importing existing block strip away intermediates.
 				let _ = block.take_intermediate::<RRSCIntermediate<Block>>(INTERMEDIATE_KEY);
 				block.fork_choice = Some(ForkChoiceStrategy::Custom(false));
-				return self.inner.import_block(block, new_cache).await.map_err(Into::into)
+				return self.inner.import_block(block, new_cache).await.map_err(Into::into);
 			},
 			Ok(sp_blockchain::BlockStatus::Unknown) => {},
 			Err(e) => return Err(ConsensusError::ClientImport(e.to_string())),
 		}
 
 		if block.with_state() {
-			return self.import_state(block, new_cache).await
+			return self.import_state(block, new_cache).await;
 		}
 
 		let pre_digest = find_pre_digest::<Block>(&block.header).expect(
@@ -1505,7 +1508,7 @@ where
 		if slot <= parent_slot {
 			return Err(ConsensusError::ClientImport(
 				rrsc_err(Error::<Block>::SlotMustIncrease(parent_slot, slot)).into(),
-			))
+			));
 		}
 
 		// if there's a pending epoch we'll save the previous epoch changes here
@@ -1555,18 +1558,21 @@ where
 			match (first_in_epoch, next_epoch_digest.is_some(), next_config_digest.is_some()) {
 				(true, true, _) => {},
 				(false, false, false) => {},
-				(false, false, true) =>
+				(false, false, true) => {
 					return Err(ConsensusError::ClientImport(
 						rrsc_err(Error::<Block>::UnexpectedConfigChange).into(),
-					)),
-				(true, false, _) =>
+					))
+				},
+				(true, false, _) => {
 					return Err(ConsensusError::ClientImport(
 						rrsc_err(Error::<Block>::ExpectedEpochChange(hash, slot)).into(),
-					)),
-				(false, true, _) =>
+					))
+				},
+				(false, true, _) => {
 					return Err(ConsensusError::ClientImport(
 						rrsc_err(Error::<Block>::UnexpectedEpochChange).into(),
-					)),
+					))
+				},
 			}
 
 			let info = self.client.info();
@@ -1641,7 +1647,7 @@ where
 					debug!(target: "rrsc", "Failed to launch next epoch: {:?}", e);
 					*epoch_changes =
 						old_epoch_changes.expect("set `Some` above and not taken; qed");
-					return Err(e)
+					return Err(e);
 				}
 
 				crate::aux_schema::write_epoch_changes::<Block, _, _>(&*epoch_changes, |insert| {
@@ -1900,7 +1906,7 @@ where
 			let meta = client.header_metadata(hash)?;
 			if meta.number <= number + One::one() {
 				// We've reached a child of the revert point, stop here.
-				break
+				break;
 			}
 			hash = client.header_metadata(hash)?.parent;
 		}

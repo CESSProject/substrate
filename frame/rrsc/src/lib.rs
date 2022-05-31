@@ -42,14 +42,16 @@ use sp_std::prelude::*;
 
 use cessp_consensus_rrsc::{
 	digests::{NextConfigDescriptor, NextEpochDescriptor, PreDigest},
-	RRSCAuthorityWeight, RRSCEpochConfiguration, ConsensusLog, Epoch, EquivocationProof, Slot,
+	ConsensusLog, Epoch, EquivocationProof, RRSCAuthorityWeight, RRSCEpochConfiguration, Slot,
 	RRSC_ENGINE_ID,
 };
 // use schnorrkel::{keys::PublicKey, vrf::VRFInOut};
 use sp_consensus_vrf::schnorrkel as sp_schnorrkel;
 
 // use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
-pub use cessp_consensus_rrsc::{AuthorityId, PUBLIC_KEY_LENGTH, RANDOMNESS_LENGTH, VRF_OUTPUT_LENGTH};
+pub use cessp_consensus_rrsc::{
+	AuthorityId, PUBLIC_KEY_LENGTH, RANDOMNESS_LENGTH, VRF_OUTPUT_LENGTH,
+};
 
 mod default_weights;
 mod equivocation;
@@ -62,7 +64,7 @@ mod mock;
 #[cfg(all(feature = "std", test))]
 mod tests;
 
-pub use equivocation::{RRSCEquivocationOffence, EquivocationHandler, HandleEquivocation};
+pub use equivocation::{EquivocationHandler, HandleEquivocation, RRSCEquivocationOffence};
 pub use randomness::{
 	CurrentBlockRandomness, RandomnessFromOneEpochAgo, RandomnessFromTwoEpochsAgo,
 };
@@ -341,6 +343,8 @@ pub mod pallet {
 	#[pallet::genesis_config]
 	pub struct GenesisConfig {
 		pub authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
+		pub primary_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
+		pub secondary_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
 		pub epoch_config: Option<RRSCEpochConfiguration>,
 	}
 
@@ -349,6 +353,8 @@ pub mod pallet {
 		fn build(&self) {
 			SegmentIndex::<T>::put(0);
 			Pallet::<T>::initialize_authorities(&self.authorities);
+			Pallet::<T>::initialize_primary_authorities(&self.primary_authorities);
+			Pallet::<T>::initialize_secondary_authorities(&self.secondary_authorities);
 			EpochConfig::<T>::put(
 				self.epoch_config.clone().expect("epoch_config must not be None"),
 			);
@@ -462,11 +468,11 @@ impl<T: Config> FindAuthor<u32> for Pallet<T> {
 		for (id, mut data) in digests.into_iter() {
 			if id == RRSC_ENGINE_ID {
 				let pre_digest: PreDigest = PreDigest::decode(&mut data).ok()?;
-				return Some(pre_digest.authority_index())
+				return Some(pre_digest.authority_index());
 			}
 		}
 
-		return None
+		return None;
 	}
 }
 
@@ -585,7 +591,7 @@ impl<T: Config> Pallet<T> {
 		let primary_authorities = Self::select_primary_authorities();
 		PrimaryAuthorities::<T>::put(primary_authorities.clone());
 
-		// Secondary Authorities participate in block generation during elected epoch 
+		// Secondary Authorities participate in block generation during elected epoch
 		// if Primary Authority fails to generate block.
 		let secondary_authorities = Self::select_secondary_authorities();
 		SecondaryAuthorities::<T>::put(secondary_authorities.clone());
@@ -697,7 +703,7 @@ impl<T: Config> Pallet<T> {
 		// => let's ensure that we only modify the storage once per block
 		let initialized = Self::initialized().is_some();
 		if initialized {
-			return
+			return;
 		}
 
 		let maybe_pre_digest: Option<PreDigest> =
@@ -761,7 +767,9 @@ impl<T: Config> Pallet<T> {
 				// Reconstruct the bytes of VRFInOut using the authority id.
 				Authorities::<T>::get()
 					.get(authority_index as usize)
-					.and_then(|author| sp_schnorrkel::PublicKey::from_bytes(author.0.as_slice()).ok())
+					.and_then(|author| {
+						sp_schnorrkel::PublicKey::from_bytes(author.0.as_slice()).ok()
+					})
 					.and_then(|pubkey| {
 						let transcript = cessp_consensus_rrsc::make_transcript(
 							&Self::randomness(),
@@ -818,6 +826,36 @@ impl<T: Config> Pallet<T> {
 		}
 	}
 
+	fn initialize_primary_authorities(authorities: &[(AuthorityId, RRSCAuthorityWeight)]) {
+		if !authorities.is_empty() {
+			assert!(
+				PrimaryAuthorities::<T>::get().is_empty(),
+				"Authorities are already initialized!"
+			);
+			let bounded_authorities =
+				WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(authorities.to_vec())
+					.expect(
+					"Initial number of primary authorities should be lower than T::MaxPrimaryAuthorities",
+				);
+			PrimaryAuthorities::<T>::put(&bounded_authorities);
+		}
+	}
+
+	fn initialize_secondary_authorities(authorities: &[(AuthorityId, RRSCAuthorityWeight)]) {
+		if !authorities.is_empty() {
+			assert!(
+				SecondaryAuthorities::<T>::get().is_empty(),
+				"Authorities are already initialized!"
+			);
+			let bounded_authorities =
+				WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(authorities.to_vec())
+					.expect(
+					"Initial number of secondary authorities should be lower than T::MaxSecondaryAuthorities",
+				);
+			SecondaryAuthorities::<T>::put(&bounded_authorities);
+		}
+	}
+
 	fn do_report_equivocation(
 		reporter: Option<T::AccountId>,
 		equivocation_proof: EquivocationProof<T::Header>,
@@ -828,7 +866,7 @@ impl<T: Config> Pallet<T> {
 
 		// validate the equivocation proof
 		if !cessp_consensus_rrsc::check_equivocation_proof(equivocation_proof) {
-			return Err(Error::<T>::InvalidEquivocationProof.into())
+			return Err(Error::<T>::InvalidEquivocationProof.into());
 		}
 
 		let validator_set_count = key_owner_proof.validator_count();
@@ -840,7 +878,7 @@ impl<T: Config> Pallet<T> {
 		// check that the slot number is consistent with the session index
 		// in the key ownership proof (i.e. slot is for that epoch)
 		if epoch_index != session_index {
-			return Err(Error::<T>::InvalidKeyOwnershipProof.into())
+			return Err(Error::<T>::InvalidKeyOwnershipProof.into());
 		}
 
 		// check the membership proof and extract the offender's id
@@ -878,72 +916,19 @@ impl<T: Config> Pallet<T> {
 		.ok()
 	}
 
-	fn select_primary_authorities() -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities> {
+	fn select_primary_authorities(
+	) -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities> {
 		WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(Self::authorities().to_vec())
-				.expect("Initial number of primary authorities should be lower than T::MaxPrimaryAuthorities")
+			.expect(
+			"Initial number of primary authorities should be lower than T::MaxPrimaryAuthorities",
+		)
 	}
-	
-	fn select_secondary_authorities() -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities> {
+
+	fn select_secondary_authorities(
+	) -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities> {
 		WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(Self::authorities().to_vec())
 				.expect("Initial number of secondary authorities should be lower than T::MaxSecondaryAuthorities")
 	}
-
-	// fn check_threshold(inout: &VRFInOut, threshold: u128) -> bool {
-	// 	u128::from_le_bytes(inout.make_bytes::<[u8; 16]>(RRSC_VRF_PREFIX)) < threshold
-	// }
-
-	// fn calculate_threshold(
-	// 	authorities: &[(AuthorityId, RRSCAuthorityWeight)],
-	// 	authority_index: usize
-	// ) -> u128 {
-	// 	use num_bigint::BigUint;
-	// 	use num_rational::BigRational;
-	// 	use num_traits::{cast::ToPrimitive, identities::One};
-	
-	// 	let c = 3 as f64 / 10 as f64;
-	
-	// 	let theta = authorities[authority_index].1 as f64 /
-	// 		authorities.iter().map(|(_, weight)| weight).sum::<u64>() as f64;
-	
-	// 	assert!(theta > 0.0, "authority with weight 0.");
-	
-	// 	// NOTE: in the equation `p = 1 - (1 - c)^theta` the value of `p` is always
-	// 	// capped by `c`. For all pratical purposes `c` should always be set to a
-	// 	// value < 0.5, as such in the computations below we should never be near
-	// 	// edge cases like `0.999999`.
-	
-	// 	let p = BigRational::from_float(1f64 - (1f64 - c).powf(theta)).expect(
-	// 		"returns None when the given value is not finite; \
-	// 		 c is a configuration parameter defined in (0, 1]; \
-	// 		 theta must be > 0 if the given authority's weight is > 0; \
-	// 		 theta represents the validator's relative weight defined in (0, 1]; \
-	// 		 powf will always return values in (0, 1] given both the \
-	// 		 base and exponent are in that domain; \
-	// 		 qed.",
-	// 	);
-	
-	// 	let numer = p.numer().to_biguint().expect(
-	// 		"returns None when the given value is negative; \
-	// 		 p is defined as `1 - n` where n is defined in (0, 1]; \
-	// 		 p must be a value in [0, 1); \
-	// 		 qed.",
-	// 	);
-	
-	// 	let denom = p.denom().to_biguint().expect(
-	// 		"returns None when the given value is negative; \
-	// 		 p is defined as `1 - n` where n is defined in (0, 1]; \
-	// 		 p must be a value in [0, 1); \
-	// 		 qed.",
-	// 	);
-	
-	// 	((BigUint::one() << 128) * numer / denom).to_u128().expect(
-	// 		"returns None if the underlying value cannot be represented with 128 bits; \
-	// 		 we start with 2^128 which is one more than can be represented with 128 bits; \
-	// 		 we multiple by p which is defined in [0, 1); \
-	// 		 the result must be lower than 2^128 by at least one and thus representable with 128 bits; \
-	// 		 qed.",
-	// 	)
-	// }
 }
 
 impl<T: Config> OnTimestampSet<T::Moment> for Pallet<T> {
@@ -1004,6 +989,8 @@ impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 	{
 		let authorities = validators.map(|(_, k)| (k, 1)).collect::<Vec<_>>();
 		Self::initialize_authorities(&authorities);
+		Self::initialize_primary_authorities(&authorities);
+		Self::initialize_secondary_authorities(&authorities);
 	}
 
 	fn on_new_session<'a, I: 'a>(_changed: bool, validators: I, queued_validators: I)

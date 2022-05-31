@@ -22,13 +22,13 @@ use codec::{Decode, Encode};
 use log::info;
 
 use crate::{migration::EpochV0, Epoch};
+use cessp_consensus_rrsc::{RRSCBlockWeight, RRSCGenesisConfiguration};
 use sc_client_api::backend::AuxStore;
 use sc_consensus_epochs::{
 	migration::{EpochChangesV0For, EpochChangesV1For},
 	EpochChangesFor, SharedEpochChanges,
 };
 use sp_blockchain::{Error as ClientError, Result as ClientResult};
-use cessp_consensus_rrsc::{RRSCBlockWeight, RRSCGenesisConfiguration};
 use sp_runtime::traits::Block as BlockT;
 
 const RRSC_EPOCH_CHANGES_VERSION: &[u8] = b"rrsc_epoch_changes_version";
@@ -62,21 +62,25 @@ pub fn load_epoch_changes<Block: BlockT, B: AuxStore>(
 	let version = load_decode::<_, u32>(backend, RRSC_EPOCH_CHANGES_VERSION)?;
 
 	let maybe_epoch_changes = match version {
-		None =>
+		None => {
 			load_decode::<_, EpochChangesV0For<Block, EpochV0>>(backend, RRSC_EPOCH_CHANGES_KEY)?
-				.map(|v0| v0.migrate().map(|_, _, epoch| epoch.migrate(config))),
-		Some(1) =>
+				.map(|v0| v0.migrate().map(|_, _, epoch| epoch.migrate(config)))
+		},
+		Some(1) => {
 			load_decode::<_, EpochChangesV1For<Block, EpochV0>>(backend, RRSC_EPOCH_CHANGES_KEY)?
-				.map(|v1| v1.migrate().map(|_, _, epoch| epoch.migrate(config))),
+				.map(|v1| v1.migrate().map(|_, _, epoch| epoch.migrate(config)))
+		},
 		Some(2) => {
 			// v2 still uses `EpochChanges` v1 format but with a different `Epoch` type.
 			load_decode::<_, EpochChangesV1For<Block, Epoch>>(backend, RRSC_EPOCH_CHANGES_KEY)?
 				.map(|v2| v2.migrate())
-		}
-		Some(RRSC_EPOCH_CHANGES_CURRENT_VERSION) =>
-			load_decode::<_, EpochChangesFor<Block, Epoch>>(backend, RRSC_EPOCH_CHANGES_KEY)?,
-		Some(other) =>
-			return Err(ClientError::Backend(format!("Unsupported RRSC DB version: {:?}", other))),
+		},
+		Some(RRSC_EPOCH_CHANGES_CURRENT_VERSION) => {
+			load_decode::<_, EpochChangesFor<Block, Epoch>>(backend, RRSC_EPOCH_CHANGES_KEY)?
+		},
+		Some(other) => {
+			return Err(ClientError::Backend(format!("Unsupported RRSC DB version: {:?}", other)))
+		},
 	};
 
 	let epoch_changes =
@@ -139,11 +143,11 @@ pub fn load_block_weight<H: Encode, B: AuxStore>(
 mod test {
 	use super::*;
 	use crate::migration::EpochV0;
+	use cessp_consensus_rrsc::{AllowedSlots, RRSCGenesisConfiguration};
 	use fork_tree::ForkTree;
 	use sc_consensus_epochs::{EpochHeader, PersistedEpoch, PersistedEpochHeader};
 	use sc_network_test::Block as TestBlock;
 	use sp_consensus::Error as ConsensusError;
-	use cessp_consensus_rrsc::{AllowedSlots, RRSCGenesisConfiguration};
 	use sp_core::H256;
 	use sp_runtime::traits::NumberFor;
 	use substrate_test_runtime_client;
@@ -188,9 +192,9 @@ mod test {
 				slot_duration: 10,
 				epoch_length: 4,
 				c: (3, 10),
-				genesis_authorities: Vec::new(),
-				genesis_primary_authorities: Vec::new(),
-				genesis_secondary_authorities: Vec::new(),
+				genesis_authorities: vec![],
+				genesis_primary_authorities: vec![],
+				genesis_secondary_authorities: vec![],
 				randomness: Default::default(),
 				allowed_slots: AllowedSlots::PrimaryAndSecondaryPlainSlots,
 			},
@@ -203,8 +207,8 @@ mod test {
 				.tree()
 				.iter()
 				.map(|(_, _, epoch)| epoch.clone())
-				.collect::<Vec<_>>() ==
-				vec![PersistedEpochHeader::Regular(EpochHeader {
+				.collect::<Vec<_>>()
+				== vec![PersistedEpochHeader::Regular(EpochHeader {
 					start_slot: 0.into(),
 					end_slot: 100.into(),
 				})],
