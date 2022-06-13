@@ -21,17 +21,17 @@
 use super::Epoch;
 use cessp_consensus_rrsc::{
 	digests::{PreDigest, PrimaryPreDigest, SecondaryPlainPreDigest, SecondaryVRFPreDigest},
-	make_transcript, make_transcript_data, AuthorityId, RRSCAuthorityWeight, Slot, RRSC_VRF_PREFIX,
+	make_transcript, make_transcript_data, AuthorityId, RRSCAuthorityWeight, Slot, RRSC_VRF_PREFIX, ConsensusLog,
 };
-use codec::Encode;
-use schnorrkel::{keys::PublicKey, vrf::VRFInOut};
+use codec::{Encode, Decode};
+use schnorrkel::{vrf::VRFInOut, PublicKey};
 use sp_application_crypto::AppKey;
 use sp_consensus_vrf::schnorrkel::{VRFOutput, VRFProof};
 use sp_core::{blake2_256, crypto::ByteArray, U256};
 use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
 use pallet_rrsc::{ Pallet, Config };
-
-
+use frame_support::{traits::OneSessionHandler, WeakBoundedVec};
+//use sp_application_crypto::RuntimeAppPublic;
 
 /// Calculates the primary selection threshold for a given authority, taking
 /// into account `c` (`1 - c` represents the probability of a slot being empty).
@@ -130,13 +130,13 @@ fn claim_secondary_slot(
 	keystore: &SyncCryptoStorePtr,
 	author_secondary_vrf: bool,
 ) -> Option<(PreDigest, AuthorityId)> {
-	let Epoch { authorities, randomness, epoch_index, .. } = epoch;
+	let Epoch { secondary_authorities, randomness, epoch_index, .. } = epoch;
 
-	if authorities.is_empty() {
+	if secondary_authorities.is_empty() {
 		return None;
 	}
 
-	let expected_author = secondary_slot_author(slot, authorities, *randomness)?;
+	let expected_author = secondary_slot_author(slot, secondary_authorities, *randomness)?;
 
 	for (authority_id, authority_index) in keys {
 		if authority_id == expected_author {
@@ -188,13 +188,13 @@ pub fn claim_slot(
 	epoch: &Epoch,
 	keystore: &SyncCryptoStorePtr,
 ) -> Option<(PreDigest, AuthorityId)> {
-	let authorities = epoch
-		.primary_authorities
-		.iter()
-		.enumerate()
-		.map(|(index, a)| (a.0.clone(), index))
-		.collect::<Vec<_>>();
-	claim_slot_using_keys(slot, epoch, keystore, &authorities)
+	// let authorities = epoch
+	// 	.primary_authorities
+	// 	.iter()
+	// 	.enumerate()
+	// 	.map(|(index, a)| (a.0.clone(), index))
+	// 	.collect::<Vec<_>>();
+	claim_slot_using_keys(slot, epoch, keystore/*, &authorities*/)
 }
 
 /// Like `claim_slot`, but allows passing an explicit set of key pairs. Useful if we intend
@@ -203,16 +203,28 @@ pub fn claim_slot_using_keys(
 	slot: Slot,
 	epoch: &Epoch,
 	keystore: &SyncCryptoStorePtr,
-	keys: &[(AuthorityId, usize)],
+	//keys: &[(AuthorityId, usize)],
 ) -> Option<(PreDigest, AuthorityId)> {
-	primary_slot_author(slot, epoch, /*epoch.config.c,*/ keystore, &keys).or_else(|| {
+	let primary_authorities_keys = epoch
+		.primary_authorities
+		.iter()
+		.enumerate()
+		.map(|(index, a)| (a.0.clone(), index))
+		.collect::<Vec<_>>();
+	primary_slot_author(slot, epoch, /*epoch.config.c,*/ keystore, &primary_authorities_keys).or_else(|| {
 		if epoch.config.allowed_slots.is_secondary_plain_slots_allowed()
 			|| epoch.config.allowed_slots.is_secondary_vrf_slots_allowed()
 		{
+			let secondary_authorities_keys = epoch
+				.secondary_authorities
+				.iter()
+				.enumerate()
+				.map(|(index, a)| (a.0.clone(), index))
+				.collect::<Vec<_>>();
 			claim_secondary_slot(
 				slot,
 				&epoch,
-				keys,
+				&secondary_authorities_keys,
 				&keystore,
 				epoch.config.allowed_slots.is_secondary_vrf_slots_allowed(),
 			)
@@ -272,6 +284,195 @@ fn primary_slot_author(
 	};
 	None
 }
+
+trait TwoSessionHandler<ValidatorId>: OneSessionHandler<ValidatorId> {
+	// type Key: Decode + RuntimeAppPublic;
+	type Key: Decode + AppKey;
+	
+	fn on_genesis_session<'a, I: 'a>(validators: I)
+	where
+		I: Iterator<Item = (&'a ValidatorId, <Self as TwoSessionHandler<ValidatorId>>::Key)>,
+		ValidatorId: 'a;
+
+	fn on_new_session<'a, I: 'a>(changed: bool, validators: I, queued_validators: I)
+		where
+			I: Iterator<Item = (&'a ValidatorId, <Self as TwoSessionHandler<ValidatorId>>::Key)>,
+			ValidatorId: 'a;
+
+	fn on_before_session_ending() {}
+
+	/// A validator got disabled. Act accordingly until a new session begins.
+	fn on_disabled(_validator_index: u32);
+}
+
+impl<T: Config> TwoSessionHandler<T::AccountId> for Pallet<T> {
+	type Key = AuthorityId;
+
+	fn on_genesis_session<'a, I: 'a>(validators: I)
+	where
+		I: Iterator<Item = (&'a T::AccountId, AuthorityId)>,
+	{
+		let authorities = validators.map(|(_, k)| (k, 1)).collect::<Vec<_>>();
+		Self::initialize_authorities(&authorities);
+		Self::initialize_primary_authorities(&authorities);
+		Self::initialize_secondary_authorities(&authorities);
+	}
+
+	fn on_new_session<'a, I: 'a>(_changed: bool, validators: I, queued_validators: I)
+	where
+		I: Iterator<Item = (&'a T::AccountId, AuthorityId)>,
+	{
+		let authorities = validators.map(|(_account, k)| (k, 1)).collect::<Vec<_>>();
+		let bounded_authorities = WeakBoundedVec::<_, T::MaxAuthorities>::force_from(
+			authorities,
+			Some(
+				"Warning: The session has more validators than expected. \
+				A runtime configuration adjustment may be needed.",
+			),
+		);
+
+		let next_authorities = queued_validators.map(|(_account, k)| (k, 1)).collect::<Vec<_>>();
+		let next_bounded_authorities = WeakBoundedVec::<_, T::MaxAuthorities>::force_from(
+			next_authorities.clone(),
+			Some(
+				"Warning: The session has more queued validators than expected. \
+				A runtime configuration adjustment may be needed.",
+			),
+		);
+
+		let next_bounded_primary_authorities = WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::force_from(
+			next_authorities.clone(),
+			Some(
+				"Warning: The session has more queued validators than expected. \
+				A runtime configuration adjustment may be needed.",
+			),
+		);
+
+		let next_bounded_secondary_authorities = WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::force_from(
+			next_authorities,
+			Some(
+				"Warning: The session has more queued validators than expected. \
+				A runtime configuration adjustment may be needed.",
+			),
+		);
+
+		Self::enact_epoch_change(bounded_authorities, next_bounded_authorities, next_bounded_primary_authorities, next_bounded_secondary_authorities)
+	}
+
+	fn on_disabled(i: u32) {
+		Self::deposit_consensus(ConsensusLog::OnDisabled(i))
+	}
+
+}
+
+fn select_next_epoch_primary_authorities<T: Config>(
+	epoch: &Epoch, 
+	keystore: &SyncCryptoStorePtr,
+	next_authorities: &[(AuthorityId, u64)]
+) -> Option<WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities>>
+{
+	let keys = next_authorities.iter()
+			.enumerate()
+			.map(|(index, a)| (a, index))
+			.collect::<Vec<_>>();
+	let Epoch { authorities, randomness, epoch_index, .. } = epoch;
+	let mut next_primary_authorities: Vec<(AuthorityId, u64)> = vec![];
+
+	while next_primary_authorities.len() < 11 {
+		for ((authority_id, authority_weight), authority_index) in &keys {
+			let transcript = make_transcript(randomness, *epoch_index);
+			let transcript_data = make_transcript_data(randomness, *epoch_index);
+
+			let threshold = calculate_primary_threshold((3, 10), authorities, *authority_index);
+
+			let result = SyncCryptoStore::sr25519_vrf_sign(
+				&**keystore,
+				AuthorityId::ID,
+				authority_id.as_ref(),
+				transcript_data,
+			);
+			if let Ok(Some(signature)) = result {
+				let public = match PublicKey::from_bytes(&authority_id.to_raw_vec()) {
+					Ok(pk) => pk,
+					Err(_) => continue,
+				};
+				let inout = match signature.output.attach_input_hash(&public, transcript) {
+					Ok(inout) => inout,
+					Err(_) => continue,
+				};
+				if check_primary_threshold(&inout, threshold) {
+					next_primary_authorities.push((authority_id.clone(), *authority_weight));
+					if next_primary_authorities.len() == 11 {
+						return Some(
+							WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(next_primary_authorities)
+								.expect(
+								"Initial number of primary authorities should be lower than T::MaxPrimaryAuthorities",
+							)
+						)  ;
+					} else {
+						return None;
+					}
+				}
+			}
+		}
+	}
+	return None;
+}
+
+fn select_next_epoch_secondary_authorities<T: Config>(	
+	epoch: &Epoch, 
+	keystore: &SyncCryptoStorePtr,
+	next_authorities: &[(AuthorityId, u64)]
+) -> Option<WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities>>
+{
+	let keys = next_authorities.iter()
+			.enumerate()
+			.map(|(index, a)| (a, index))
+			.collect::<Vec<_>>();
+	let Epoch { authorities, randomness, epoch_index, .. } = epoch;
+	let mut next_secondary_authorities: Vec<(AuthorityId, u64)> = vec![];
+
+	while next_secondary_authorities.len() < 11 {
+		for ((authority_id, authority_weight), authority_index) in &keys {
+			let transcript = make_transcript(randomness, *epoch_index);
+			let transcript_data = make_transcript_data(randomness, *epoch_index);
+
+			let threshold = calculate_primary_threshold((3, 10), authorities, *authority_index);
+
+			let result = SyncCryptoStore::sr25519_vrf_sign(
+				&**keystore,
+				AuthorityId::ID,
+				authority_id.as_ref(),
+				transcript_data,
+			);
+			if let Ok(Some(signature)) = result {
+				let public = match PublicKey::from_bytes(&authority_id.to_raw_vec()) {
+					Ok(pk) => pk,
+					Err(_) => continue,
+				};
+				let inout = match signature.output.attach_input_hash(&public, transcript) {
+					Ok(inout) => inout,
+					Err(_) => continue,
+				};
+				if check_primary_threshold(&inout, threshold) {
+					next_secondary_authorities.push((authority_id.clone(), *authority_weight));
+					if next_secondary_authorities.len() == 11 {
+						return Some(
+							WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(next_secondary_authorities)
+								.expect(
+								"Initial number of primary authorities should be lower than T::MaxSecondaryAuthorities",
+							)
+						)  ;
+					} else {
+						return None;
+					}
+				}
+			}
+		}
+	}
+	return None;
+}
+
 
 #[cfg(test)]
 mod tests {

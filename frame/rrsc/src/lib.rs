@@ -100,8 +100,12 @@ impl EpochChangeTrigger for SameAuthoritiesForever {
 		if <Pallet<T>>::should_epoch_change(now) {
 			let authorities = <Pallet<T>>::authorities();
 			let next_authorities = authorities.clone();
+			let next_primary_authorities = WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(authorities.to_vec())
+				.expect("Initial number of authorities should be lower than T::MaxPrimaryAuthorities");
+			let next_secondary_authorities = WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(authorities.to_vec())
+			.expect("Initial number of authorities should be lower than T::MaxSecondaryAuthorities");
 
-			<Pallet<T>>::enact_epoch_change(authorities, next_authorities);
+			<Pallet<T>>::enact_epoch_change(authorities, next_authorities, next_primary_authorities, next_secondary_authorities);
 		}
 	}
 }
@@ -272,6 +276,22 @@ pub mod pallet {
 	pub(super) type NextAuthorities<T: Config> = StorageValue<
 		_,
 		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxAuthorities>,
+		ValueQuery,
+	>;
+
+	/// Next epoch primary authorities.
+	#[pallet::storage]
+	pub(super) type NextPrimaryAuthorities<T: Config> = StorageValue<
+		_,
+		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities>,
+		ValueQuery,
+	>;
+
+	/// Next epoch secondary authorities.
+	#[pallet::storage]
+	pub(super) type NextSecondaryAuthorities<T: Config> = StorageValue<
+		_,
+		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities>,
 		ValueQuery,
 	>;
 
@@ -551,6 +571,8 @@ impl<T: Config> Pallet<T> {
 	pub fn enact_epoch_change(
 		authorities: WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxAuthorities>,
 		next_authorities: WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxAuthorities>,
+		next_primary_authorities: WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities>,
+		next_secondary_authorities: WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities>,
 	) {
 		// PRECONDITION: caller has done initialization and is guaranteed
 		// by the session module to be called before this.
@@ -576,6 +598,8 @@ impl<T: Config> Pallet<T> {
 
 		// Update the next epoch authorities.
 		NextAuthorities::<T>::put(&next_authorities);
+		NextPrimaryAuthorities::<T>::put(&next_primary_authorities);
+		NextSecondaryAuthorities::<T>::put(&next_secondary_authorities);
 
 		// Update the start blocks of the previous and new current epoch.
 		<EpochStart<T>>::mutate(|(previous_epoch_start_block, current_epoch_start_block)| {
@@ -598,8 +622,8 @@ impl<T: Config> Pallet<T> {
 
 		let next_epoch = NextEpochDescriptor {
 			authorities: next_authorities.to_vec(),
-			primary_authorities: primary_authorities.to_vec(),
-			secondary_authorities: secondary_authorities.to_vec(),
+			primary_authorities: next_primary_authorities.to_vec(),
+			secondary_authorities: next_secondary_authorities.to_vec(),
 			randomness: next_randomness,
 		};
 		Self::deposit_consensus(ConsensusLog::NextEpochData(next_epoch));
@@ -674,7 +698,7 @@ impl<T: Config> Pallet<T> {
 		epoch_start.checked_add(*GenesisSlot::<T>::get()).expect(PROOF).into()
 	}
 
-	fn deposit_consensus<U: Encode>(new: U) {
+	pub fn deposit_consensus<U: Encode>(new: U) {
 		let log = DigestItem::Consensus(RRSC_ENGINE_ID, new.encode());
 		<frame_system::Pallet<T>>::deposit_log(log.into())
 	}
@@ -815,7 +839,7 @@ impl<T: Config> Pallet<T> {
 		this_randomness
 	}
 
-	fn initialize_authorities(authorities: &[(AuthorityId, RRSCAuthorityWeight)]) {
+	pub fn initialize_authorities(authorities: &[(AuthorityId, RRSCAuthorityWeight)]) {
 		if !authorities.is_empty() {
 			assert!(Authorities::<T>::get().is_empty(), "Authorities are already initialized!");
 			let bounded_authorities =
@@ -826,11 +850,11 @@ impl<T: Config> Pallet<T> {
 		}
 	}
 
-	fn initialize_primary_authorities(authorities: &[(AuthorityId, RRSCAuthorityWeight)]) {
+	pub fn initialize_primary_authorities(authorities: &[(AuthorityId, RRSCAuthorityWeight)]) {
 		if !authorities.is_empty() {
 			assert!(
 				PrimaryAuthorities::<T>::get().is_empty(),
-				"Authorities are already initialized!"
+				"Primary Authorities are already initialized!"
 			);
 			let bounded_authorities =
 				WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(authorities.to_vec())
@@ -841,11 +865,11 @@ impl<T: Config> Pallet<T> {
 		}
 	}
 
-	fn initialize_secondary_authorities(authorities: &[(AuthorityId, RRSCAuthorityWeight)]) {
+	pub fn initialize_secondary_authorities(authorities: &[(AuthorityId, RRSCAuthorityWeight)]) {
 		if !authorities.is_empty() {
 			assert!(
 				SecondaryAuthorities::<T>::get().is_empty(),
-				"Authorities are already initialized!"
+				"Secondary Authorities are already initialized!"
 			);
 			let bounded_authorities =
 				WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(authorities.to_vec())
@@ -1008,6 +1032,22 @@ impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 
 		let next_authorities = queued_validators.map(|(_account, k)| (k, 1)).collect::<Vec<_>>();
 		let next_bounded_authorities = WeakBoundedVec::<_, T::MaxAuthorities>::force_from(
+			next_authorities.clone(),
+			Some(
+				"Warning: The session has more queued validators than expected. \
+				A runtime configuration adjustment may be needed.",
+			),
+		);
+
+		let next_bounded_primary_authorities = WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::force_from(
+			next_authorities.clone(),
+			Some(
+				"Warning: The session has more queued validators than expected. \
+				A runtime configuration adjustment may be needed.",
+			),
+		);
+
+		let next_bounded_secondary_authorities = WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::force_from(
 			next_authorities,
 			Some(
 				"Warning: The session has more queued validators than expected. \
@@ -1015,7 +1055,7 @@ impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 			),
 		);
 
-		Self::enact_epoch_change(bounded_authorities, next_bounded_authorities)
+		Self::enact_epoch_change(bounded_authorities, next_bounded_authorities, next_bounded_primary_authorities, next_bounded_secondary_authorities)
 	}
 
 	fn on_disabled(i: u32) {

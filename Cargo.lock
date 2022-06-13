@@ -1025,6 +1025,7 @@ dependencies = [
  "async-trait",
  "cessp-consensus-rrsc",
  "fork-tree",
+ "frame-support",
  "futures 0.3.19",
  "log 0.4.14",
  "merlin",

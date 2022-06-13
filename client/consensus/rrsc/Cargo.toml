@@ -18,6 +18,7 @@ codec = { package = "parity-scale-codec", version = "3.0.0", features = [
 ] }
 pallet-rrsc = { version = "4.0.0-dev", path = "../../../frame/rrsc" }
 # frame-system = { version = "4.0.0-dev", path = "../../../frame/system" }
+frame-support = { version = "4.0.0-dev", path = "../../../frame/support" }
 cessp-consensus-rrsc = { version = "0.10.0-dev", path = "../../../primitives/consensus/rrsc" }
 sc-consensus = { version = "0.10.0-dev", path = "../../../client/consensus/common" }
 sp-core = { version = "6.0.0", path = "../../../primitives/core" }
