@@ -168,14 +168,14 @@ impl<T: Config> TwoSessionHandler<T::AccountId> for Pallet<T> {
 
 	fn on_genesis_session<'a, I: 'a>(authorities: I)
 	where
-		I: Iterator<Item = (&'a T::AccountId, Self::Key)>,
+		I: Iterator<Item = (&'a T::AccountId, <Self as TwoSessionHandler<T::AccountId>>::Key)>,
 	{
 		Self::initialize_keys(&authorities.map(|x| x.1).collect::<Vec<_>>());
 	}
 
 	fn on_new_session<'a, I: 'a>(changed: bool, validators: I, queued_validators: I)
 	where
-		I: Iterator<Item = (&'a T::AccountId, Self::Key)>,
+		I: Iterator<Item = (&'a T::AccountId, <Self as TwoSessionHandler<T::AccountId>>::Key)>,
 	{
 		// Remember who the authorities are for the new and next session.
 		if changed {

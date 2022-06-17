@@ -26,7 +26,7 @@ use frame_support::{
 	dispatch::DispatchResultWithPostInfo,
 	traits::{
 		ConstU32, DisabledValidators, FindAuthor, Get, KeyOwnerProofSystem, OnTimestampSet,
-		OneSessionHandler,
+		OneSessionHandler, TwoSessionHandler
 	},
 	weights::{Pays, Weight},
 	BoundedVec, WeakBoundedVec,
@@ -924,6 +924,46 @@ impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 	}
 }
 
+impl<T: Config> TwoSessionHandler<T::AccountId> for Pallet<T> {
+	type Key = AuthorityId;
+
+	fn on_genesis_session<'a, I: 'a>(validators: I)
+	where
+		I: Iterator<Item = (&'a T::AccountId, AuthorityId)>,
+	{
+		let authorities = validators.map(|(_, k)| (k, 1)).collect::<Vec<_>>();
+		Self::initialize_authorities(&authorities);
+	}
+
+	fn on_new_session<'a, I: 'a>(_changed: bool, validators: I, queued_validators: I)
+	where
+		I: Iterator<Item = (&'a T::AccountId, AuthorityId)>,
+	{
+		let authorities = validators.map(|(_account, k)| (k, 1)).collect::<Vec<_>>();
+		let bounded_authorities = WeakBoundedVec::<_, T::MaxAuthorities>::force_from(
+			authorities,
+			Some(
+				"Warning: The session has more validators than expected. \
+				A runtime configuration adjustment may be needed.",
+			),
+		);
+
+		let next_authorities = queued_validators.map(|(_account, k)| (k, 1)).collect::<Vec<_>>();
+		let next_bounded_authorities = WeakBoundedVec::<_, T::MaxAuthorities>::force_from(
+			next_authorities,
+			Some(
+				"Warning: The session has more queued validators than expected. \
+				A runtime configuration adjustment may be needed.",
+			),
+		);
+
+		Self::enact_epoch_change(bounded_authorities, next_bounded_authorities)
+	}
+
+	fn on_disabled(i: u32) {
+		Self::deposit_consensus(ConsensusLog::OnDisabled(i))
+	}
+}
 // compute randomness for a new epoch. rho is the concatenation of all
 // VRF outputs in the prior epoch.
 //

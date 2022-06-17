@@ -85,7 +85,7 @@ pub mod weights;
 use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::{
 	traits::{
-		EstimateNextSessionRotation, Get, OneSessionHandler, ValidatorSet,
+		EstimateNextSessionRotation, Get, OneSessionHandler, TwoSessionHandler, ValidatorSet,
 		ValidatorSetWithIdentification, WrapperOpaque,
 	},
 	BoundedSlice, WeakBoundedVec,
@@ -848,6 +848,80 @@ impl<T: Config> sp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
 }
 
 impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
+	type Key = T::AuthorityId;
+
+	fn on_genesis_session<'a, I: 'a>(validators: I)
+	where
+		I: Iterator<Item = (&'a T::AccountId, T::AuthorityId)>,
+	{
+		let keys = validators.map(|x| x.1).collect::<Vec<_>>();
+		Self::initialize_keys(&keys);
+	}
+
+	fn on_new_session<'a, I: 'a>(_changed: bool, validators: I, _queued_validators: I)
+	where
+		I: Iterator<Item = (&'a T::AccountId, T::AuthorityId)>,
+	{
+		// Tell the offchain worker to start making the next session's heartbeats.
+		// Since we consider producing blocks as being online,
+		// the heartbeat is deferred a bit to prevent spamming.
+		let block_number = <frame_system::Pallet<T>>::block_number();
+		let half_session = T::NextSessionRotation::average_session_length() / 2u32.into();
+		<HeartbeatAfter<T>>::put(block_number + half_session);
+
+		// Remember who the authorities are for the new session.
+		let keys = validators.map(|x| x.1).collect::<Vec<_>>();
+		let bounded_keys = WeakBoundedVec::<_, T::MaxKeys>::force_from(
+			keys,
+			Some(
+				"Warning: The session has more keys than expected. \
+  				A runtime configuration adjustment may be needed.",
+			),
+		);
+		Keys::<T>::put(bounded_keys);
+	}
+
+	fn on_before_session_ending() {
+		let session_index = T::ValidatorSet::session_index();
+		let keys = Keys::<T>::get();
+		let current_validators = T::ValidatorSet::validators();
+
+		let offenders = current_validators
+			.into_iter()
+			.enumerate()
+			.filter(|(index, id)| !Self::is_online_aux(*index as u32, id))
+			.filter_map(|(_, id)| {
+				<T::ValidatorSet as ValidatorSetWithIdentification<T::AccountId>>::IdentificationOf::convert(
+					id.clone()
+				).map(|full_id| (id, full_id))
+			})
+			.collect::<Vec<IdentificationTuple<T>>>();
+
+		// Remove all received heartbeats and number of authored blocks from the
+		// current session, they have already been processed and won't be needed
+		// anymore.
+		ReceivedHeartbeats::<T>::remove_prefix(&T::ValidatorSet::session_index(), None);
+		AuthoredBlocks::<T>::remove_prefix(&T::ValidatorSet::session_index(), None);
+
+		if offenders.is_empty() {
+			Self::deposit_event(Event::<T>::AllGood);
+		} else {
+			Self::deposit_event(Event::<T>::SomeOffline { offline: offenders.clone() });
+
+			let validator_set_count = keys.len() as u32;
+			let offence = UnresponsivenessOffence { session_index, validator_set_count, offenders };
+			if let Err(e) = T::ReportUnresponsiveness::report_offence(vec![], offence) {
+				sp_runtime::print(e);
+			}
+		}
+	}
+
+	fn on_disabled(_i: u32) {
+		// ignore
+	}
+}
+
+impl<T: Config> TwoSessionHandler<T::AccountId> for Pallet<T> {
 	type Key = T::AuthorityId;
 
 	fn on_genesis_session<'a, I: 'a>(validators: I)

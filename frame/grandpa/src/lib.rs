@@ -43,7 +43,7 @@ use frame_support::{
 	dispatch::DispatchResultWithPostInfo,
 	pallet_prelude::Get,
 	storage,
-	traits::{KeyOwnerProofSystem, OneSessionHandler, StorageVersion},
+	traits::{KeyOwnerProofSystem, OneSessionHandler, TwoSessionHandler, StorageVersion},
 	weights::{Pays, Weight},
 	WeakBoundedVec,
 };
@@ -611,6 +611,64 @@ impl<T: Config> sp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
 }
 
 impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T>
+where
+	T: pallet_session::Config,
+{
+	type Key = AuthorityId;
+
+	fn on_genesis_session<'a, I: 'a>(validators: I)
+	where
+		I: Iterator<Item = (&'a T::AccountId, AuthorityId)>,
+	{
+		let authorities = validators.map(|(_, k)| (k, 1)).collect::<Vec<_>>();
+		Self::initialize(&authorities);
+	}
+
+	fn on_new_session<'a, I: 'a>(changed: bool, validators: I, _queued_validators: I)
+	where
+		I: Iterator<Item = (&'a T::AccountId, AuthorityId)>,
+	{
+		// Always issue a change if `session` says that the validators have changed.
+		// Even if their session keys are the same as before, the underlying economic
+		// identities have changed.
+		let current_set_id = if changed || <Stalled<T>>::exists() {
+			let next_authorities = validators.map(|(_, k)| (k, 1)).collect::<Vec<_>>();
+
+			let res = if let Some((further_wait, median)) = <Stalled<T>>::take() {
+				Self::schedule_change(next_authorities, further_wait, Some(median))
+			} else {
+				Self::schedule_change(next_authorities, Zero::zero(), None)
+			};
+
+			if res.is_ok() {
+				CurrentSetId::<T>::mutate(|s| {
+					*s += 1;
+					*s
+				})
+			} else {
+				// either the session module signalled that the validators have changed
+				// or the set was stalled. but since we didn't successfully schedule
+				// an authority set change we do not increment the set id.
+				Self::current_set_id()
+			}
+		} else {
+			// nothing's changed, neither economic conditions nor session keys. update the pointer
+			// of the current set.
+			Self::current_set_id()
+		};
+
+		// if we didn't issue a change, we update the mapping to note that the current
+		// set corresponds to the latest equivalent session (i.e. now).
+		let session_index = <pallet_session::Pallet<T>>::current_index();
+		SetIdSession::<T>::insert(current_set_id, &session_index);
+	}
+
+	fn on_disabled(i: u32) {
+		Self::deposit_log(ConsensusLog::OnDisabled(i as u64))
+	}
+}
+
+impl<T: Config> TwoSessionHandler<T::AccountId> for Pallet<T>
 where
 	T: pallet_session::Config,
 {
