@@ -30,7 +30,7 @@ use sp_consensus_vrf::schnorrkel::{VRFOutput, VRFProof};
 use sp_core::{blake2_256, crypto::ByteArray, U256};
 use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
 use pallet_rrsc::{ Pallet, Config };
-use frame_support::{traits::TwoSessionHandler, WeakBoundedVec};
+use frame_support::{traits::{OneSessionHandler, TwoSessionHandler}, WeakBoundedVec};
 //use sp_application_crypto::RuntimeAppPublic;
 
 /// Calculates the primary selection threshold for a given authority, taking
@@ -285,7 +285,9 @@ fn primary_slot_author(
 	None
 }
 
-impl<T: Config> TwoSessionHandler<T::AccountId> for Pallet<T> {
+struct LocalPallet<T>(Pallet<T>);
+
+impl<T: Config> TwoSessionHandler<T::AccountId> for LocalPallet<T> {
 	type Key = AuthorityId;
 
 	fn on_genesis_session<'a, I: 'a>(validators: I)
@@ -293,9 +295,9 @@ impl<T: Config> TwoSessionHandler<T::AccountId> for Pallet<T> {
 		I: Iterator<Item = (&'a T::AccountId, AuthorityId)>,
 	{
 		let authorities = validators.map(|(_, k)| (k, 1)).collect::<Vec<_>>();
-		Self::initialize_authorities(&authorities);
-		Self::initialize_primary_authorities(&authorities);
-		Self::initialize_secondary_authorities(&authorities);
+		Pallet::<T>::initialize_authorities(&authorities);
+		Pallet::<T>::initialize_primary_authorities(&authorities);
+		Pallet::<T>::initialize_secondary_authorities(&authorities);
 	}
 
 	fn on_new_session<'a, I: 'a>(_changed: bool, validators: I, queued_validators: I)
@@ -336,13 +338,76 @@ impl<T: Config> TwoSessionHandler<T::AccountId> for Pallet<T> {
 			),
 		);
 
-		Self::enact_epoch_change(bounded_authorities, next_bounded_authorities, next_bounded_primary_authorities, next_bounded_secondary_authorities)
+		Pallet::<T>::enact_epoch_change(bounded_authorities, next_bounded_authorities, next_bounded_primary_authorities, next_bounded_secondary_authorities)
 	}
 
 	fn on_disabled(i: u32) {
-		Self::deposit_consensus(ConsensusLog::OnDisabled(i))
+		Pallet::<T>::deposit_consensus(ConsensusLog::OnDisabled(i))
 	}
 
+}
+
+impl<T: Config> OneSessionHandler<T::AccountId> for LocalPallet<T> {
+	type Key = AuthorityId;
+
+	fn on_genesis_session<'a, I: 'a>(validators: I)
+	where
+		I: Iterator<Item = (&'a T::AccountId, AuthorityId)>,
+	{
+		let authorities = validators.map(|(_, k)| (k, 1)).collect::<Vec<_>>();
+		Pallet::<T>::initialize_authorities(&authorities);
+		Pallet::<T>::initialize_primary_authorities(&authorities);
+		Pallet::<T>::initialize_secondary_authorities(&authorities);
+	}
+
+	fn on_new_session<'a, I: 'a>(_changed: bool, validators: I, queued_validators: I)
+	where
+		I: Iterator<Item = (&'a T::AccountId, AuthorityId)>,
+	{
+		let authorities = validators.map(|(_account, k)| (k, 1)).collect::<Vec<_>>();
+		let bounded_authorities = WeakBoundedVec::<_, T::MaxAuthorities>::force_from(
+			authorities,
+			Some(
+				"Warning: The session has more validators than expected. \
+				A runtime configuration adjustment may be needed.",
+			),
+		);
+
+		let next_authorities = queued_validators.map(|(_account, k)| (k, 1)).collect::<Vec<_>>();
+		let next_bounded_authorities = WeakBoundedVec::<_, T::MaxAuthorities>::force_from(
+			next_authorities.clone(),
+			Some(
+				"Warning: The session has more queued validators than expected. \
+				A runtime configuration adjustment may be needed.",
+			),
+		);
+
+		let next_bounded_primary_authorities = WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::force_from(
+			next_authorities.clone(),
+			Some(
+				"Warning: The session has more queued validators than expected. \
+				A runtime configuration adjustment may be needed.",
+			),
+		);
+
+		let next_bounded_secondary_authorities = WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::force_from(
+			next_authorities,
+			Some(
+				"Warning: The session has more queued validators than expected. \
+				A runtime configuration adjustment may be needed.",
+			),
+		);
+
+		Pallet::<T>::enact_epoch_change(bounded_authorities, next_bounded_authorities, next_bounded_primary_authorities, next_bounded_secondary_authorities)
+	}
+
+	fn on_disabled(i: u32) {
+		Pallet::<T>::deposit_consensus(ConsensusLog::OnDisabled(i))
+	}
+}
+
+impl<T: Config> sp_runtime::BoundToRuntimeAppPublic for LocalPallet<T> {
+	type Public = AuthorityId;
 }
 
 fn select_next_epoch_primary_authorities<T: Config>(
