@@ -30,7 +30,7 @@ use sp_consensus_vrf::schnorrkel::{VRFOutput, VRFProof};
 use sp_core::{blake2_256, crypto::ByteArray, U256};
 use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
 use pallet_rrsc::{ Pallet, Config };
-use frame_support::{traits::OneSessionHandler, WeakBoundedVec};
+use frame_support::{traits::TwoSessionHandler, WeakBoundedVec};
 //use sp_application_crypto::RuntimeAppPublic;
 
 /// Calculates the primary selection threshold for a given authority, taking
@@ -285,26 +285,6 @@ fn primary_slot_author(
 	None
 }
 
-trait TwoSessionHandler<ValidatorId>: OneSessionHandler<ValidatorId> {
-	// type Key: Decode + RuntimeAppPublic;
-	type Key: Decode + AppKey;
-	
-	fn on_genesis_session<'a, I: 'a>(validators: I)
-	where
-		I: Iterator<Item = (&'a ValidatorId, <Self as TwoSessionHandler<ValidatorId>>::Key)>,
-		ValidatorId: 'a;
-
-	fn on_new_session<'a, I: 'a>(changed: bool, validators: I, queued_validators: I)
-		where
-			I: Iterator<Item = (&'a ValidatorId, <Self as TwoSessionHandler<ValidatorId>>::Key)>,
-			ValidatorId: 'a;
-
-	fn on_before_session_ending() {}
-
-	/// A validator got disabled. Act accordingly until a new session begins.
-	fn on_disabled(_validator_index: u32);
-}
-
 impl<T: Config> TwoSessionHandler<T::AccountId> for Pallet<T> {
 	type Key = AuthorityId;
 
@@ -378,7 +358,7 @@ fn select_next_epoch_primary_authorities<T: Config>(
 	let Epoch { authorities, randomness, epoch_index, .. } = epoch;
 	let mut next_primary_authorities: Vec<(AuthorityId, u64)> = vec![];
 
-	while next_primary_authorities.len() < 11 {
+	while next_primary_authorities.len() <= 11 {
 		for ((authority_id, authority_weight), authority_index) in &keys {
 			let transcript = make_transcript(randomness, *epoch_index);
 			let transcript_data = make_transcript_data(randomness, *epoch_index);
@@ -432,7 +412,7 @@ fn select_next_epoch_secondary_authorities<T: Config>(
 	let Epoch { authorities, randomness, epoch_index, .. } = epoch;
 	let mut next_secondary_authorities: Vec<(AuthorityId, u64)> = vec![];
 
-	while next_secondary_authorities.len() < 11 {
+	while next_secondary_authorities.len() <= 11 {
 		for ((authority_id, authority_weight), authority_index) in &keys {
 			let transcript = make_transcript(randomness, *epoch_index);
 			let transcript_data = make_transcript_data(randomness, *epoch_index);
