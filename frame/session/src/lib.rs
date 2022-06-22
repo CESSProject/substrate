@@ -120,7 +120,7 @@ use frame_support::{
 	dispatch::{DispatchError, DispatchResult},
 	ensure,
 	traits::{
-		EstimateNextNewSession, EstimateNextSessionRotation, FindAuthor, Get, TwoSessionHandler,
+		EstimateNextNewSession, EstimateNextSessionRotation, FindAuthor, Get, OneSessionHandler,
 		StorageVersion, ValidatorRegistration, ValidatorSet,
 	},
 	weights::Weight,
@@ -302,10 +302,10 @@ pub trait SessionHandler<ValidatorId> {
 }
 
 #[impl_trait_for_tuples::impl_for_tuples(1, 30)]
-#[tuple_types_custom_trait_bound(TwoSessionHandler<AId>)]
+#[tuple_types_custom_trait_bound(OneSessionHandler<AId>)]
 impl<AId> SessionHandler<AId> for Tuple {
 	for_tuples!(
-		const KEY_TYPE_IDS: &'static [KeyTypeId] = &[ #( <<Tuple as TwoSessionHandler<AId>>::Key as RuntimeAppPublic>::ID ),* ];
+		const KEY_TYPE_IDS: &'static [KeyTypeId] = &[ #( <Tuple::Key as RuntimeAppPublic>::ID ),* ];
 	);
 
 	fn on_genesis_session<Ks: OpaqueKeys>(validators: &[(AId, Ks)]) {
@@ -313,11 +313,11 @@ impl<AId> SessionHandler<AId> for Tuple {
 			#(
 				let our_keys: Box<dyn Iterator<Item=_>> = Box::new(validators.iter()
 					.filter_map(|k|
-						k.1.get::<<Tuple as TwoSessionHandler<AId>>::Key>(<<Tuple as TwoSessionHandler<AId>>::Key as RuntimeAppPublic>::ID).map(|k1| (&k.0, k1))
+						k.1.get::<Tuple::Key>(<Tuple::Key as RuntimeAppPublic>::ID).map(|k1| (&k.0, k1))
 					)
 				);
 
-				<Tuple as TwoSessionHandler<AId>>::on_genesis_session(our_keys);
+				Tuple::on_genesis_session(our_keys);
 			)*
 		)
 	}
@@ -331,23 +331,23 @@ impl<AId> SessionHandler<AId> for Tuple {
 			#(
 				let our_keys: Box<dyn Iterator<Item=_>> = Box::new(validators.iter()
 					.filter_map(|k|
-						k.1.get::<<Tuple as TwoSessionHandler<AId>>::Key>(<<Tuple as TwoSessionHandler<AId>>::Key as RuntimeAppPublic>::ID).map(|k1| (&k.0, k1))
+						k.1.get::<Tuple::Key>(<Tuple::Key as RuntimeAppPublic>::ID).map(|k1| (&k.0, k1))
 					));
 				let queued_keys: Box<dyn Iterator<Item=_>> = Box::new(queued_validators.iter()
 					.filter_map(|k|
-						k.1.get::<<Tuple as TwoSessionHandler<AId>>::Key>(<<Tuple as TwoSessionHandler<AId>>::Key as RuntimeAppPublic>::ID).map(|k1| (&k.0, k1))
+						k.1.get::<Tuple::Key>(<Tuple::Key as RuntimeAppPublic>::ID).map(|k1| (&k.0, k1))
 					));
-					<Tuple as TwoSessionHandler<AId>>::on_new_session(changed, our_keys, queued_keys);
+				Tuple::on_new_session(changed, our_keys, queued_keys);
 			)*
 		)
 	}
 
 	fn on_before_session_ending() {
-		for_tuples!( #( <Tuple as TwoSessionHandler<AId>>::on_before_session_ending(); )* )
+		for_tuples!( #( Tuple::on_before_session_ending(); )* )
 	}
 
 	fn on_disabled(i: u32) {
-		for_tuples!( #( <Tuple as TwoSessionHandler<AId>>::on_disabled(i); )* )
+		for_tuples!( #( Tuple::on_disabled(i); )* )
 	}
 }
 

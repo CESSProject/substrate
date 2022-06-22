@@ -451,8 +451,8 @@ parameter_types! {
 	pub const ReportLongevity: u64 =
 		BondingDuration::get() as u64 * SessionsPerEra::get() as u64 * EpochDuration::get();
 	pub const MaxAuthorities: u32 = 100;
-	pub const MaxPrimaryAuthorities: u32 = 100;
-	pub const MaxSecondaryAuthorities: u32 = 100;
+	pub const MaxPrimaryAuthorities: u32 = 11;
+	pub const MaxSecondaryAuthorities: u32 = 11;
 }
 
 impl pallet_rrsc::Config for Runtime {

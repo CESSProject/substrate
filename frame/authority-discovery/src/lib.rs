@@ -24,7 +24,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use frame_support::{
-	traits::{Get, OneSessionHandler, TwoSessionHandler},
+	traits::{Get, OneSessionHandler},
 	WeakBoundedVec,
 };
 use sp_authority_discovery::AuthorityId;
@@ -129,53 +129,6 @@ impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 	fn on_new_session<'a, I: 'a>(changed: bool, validators: I, queued_validators: I)
 	where
 		I: Iterator<Item = (&'a T::AccountId, Self::Key)>,
-	{
-		// Remember who the authorities are for the new and next session.
-		if changed {
-			let keys = validators.map(|x| x.1).collect::<Vec<_>>();
-
-			let bounded_keys = WeakBoundedVec::<_, T::MaxAuthorities>::force_from(
-				keys,
-				Some(
-					"Warning: The session has more validators than expected. \
-				A runtime configuration adjustment may be needed.",
-				),
-			);
-
-			Keys::<T>::put(bounded_keys);
-
-			let next_keys = queued_validators.map(|x| x.1).collect::<Vec<_>>();
-
-			let next_bounded_keys = WeakBoundedVec::<_, T::MaxAuthorities>::force_from(
-				next_keys,
-				Some(
-					"Warning: The session has more queued validators than expected. \
-				A runtime configuration adjustment may be needed.",
-				),
-			);
-
-			NextKeys::<T>::put(next_bounded_keys);
-		}
-	}
-
-	fn on_disabled(_i: u32) {
-		// ignore
-	}
-}
-
-impl<T: Config> TwoSessionHandler<T::AccountId> for Pallet<T> {
-	type Key = AuthorityId;
-
-	fn on_genesis_session<'a, I: 'a>(authorities: I)
-	where
-		I: Iterator<Item = (&'a T::AccountId, <Self as TwoSessionHandler<T::AccountId>>::Key)>,
-	{
-		Self::initialize_keys(&authorities.map(|x| x.1).collect::<Vec<_>>());
-	}
-
-	fn on_new_session<'a, I: 'a>(changed: bool, validators: I, queued_validators: I)
-	where
-		I: Iterator<Item = (&'a T::AccountId, <Self as TwoSessionHandler<T::AccountId>>::Key)>,
 	{
 		// Remember who the authorities are for the new and next session.
 		if changed {

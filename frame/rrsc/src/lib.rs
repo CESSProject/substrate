@@ -26,7 +26,7 @@ use frame_support::{
 	dispatch::DispatchResultWithPostInfo,
 	traits::{
 		ConstU32, DisabledValidators, FindAuthor, Get, KeyOwnerProofSystem, OnTimestampSet,
-		OneSessionHandler, TwoSessionHandler,
+		OneSessionHandler,
 	},
 	weights::{Pays, Weight},
 	BoundedVec, WeakBoundedVec,
@@ -953,6 +953,76 @@ impl<T: Config> Pallet<T> {
 		WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(Self::authorities().to_vec())
 				.expect("Initial number of secondary authorities should be lower than T::MaxSecondaryAuthorities")
 	}
+
+	fn select_next_epoch_primary_authorities(
+		next_authorities: &[(AuthorityId, u64)]
+	) -> Option<WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities>>
+	{
+		log::info!("++++++++++++++++++++++Selecting primary authorities+++++++++++++++++++++++");
+		let keys = next_authorities.iter()
+			.enumerate()
+			.map(|(index, a)| (a, index))
+			.collect::<Vec<_>>();
+		let mut next_primary_authorities: Vec<(AuthorityId, u64)> = vec![];
+		let max_primary_authorities = if next_authorities.len() < T::MaxPrimaryAuthorities::get() as usize {
+				next_authorities.len()
+			} else {
+				T::MaxPrimaryAuthorities::get() as usize
+			};
+
+		while next_primary_authorities.len() <= max_primary_authorities {
+			for ((authority_id, authority_weight), authority_index) in &keys {
+				if !next_primary_authorities.contains(&(authority_id.clone(), *authority_weight)) {
+					next_primary_authorities.push((authority_id.clone(), *authority_weight));
+					if next_primary_authorities.len() == max_primary_authorities {
+						log::info!("{:?}", next_primary_authorities);
+						return Some(
+							WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(next_primary_authorities)
+								.expect(
+								"Initial number of primary authorities should be lower than T::MaxPrimaryAuthorities",
+							)
+						);
+					}
+				}
+			}
+		}
+		return None;
+	}
+	
+	fn select_next_epoch_secondary_authorities(
+		next_authorities: &[(AuthorityId, u64)]
+	) -> Option<WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities>>
+	{
+		log::info!("+++++++++++++++++++++++++Selecting secondary authorities+++++++++++++++++++++");
+		let keys = next_authorities.iter()
+			.enumerate()
+			.map(|(index, a)| (a, index))
+			.collect::<Vec<_>>();
+		let mut next_secondary_authorities: Vec<(AuthorityId, u64)> = vec![];
+		let max_secondary_authorities = if next_authorities.len() < T::MaxSecondaryAuthorities::get() as usize {
+			next_authorities.len()
+		} else {
+			T::MaxSecondaryAuthorities::get() as usize
+		};
+
+		while next_secondary_authorities.len() <= max_secondary_authorities {
+			for ((authority_id, authority_weight), authority_index) in &keys {
+				if !next_secondary_authorities.contains(&(authority_id.clone(), *authority_weight)) {
+					next_secondary_authorities.push((authority_id.clone(), *authority_weight));
+					if next_secondary_authorities.len() == max_secondary_authorities {
+						log::info!("{:?}", next_secondary_authorities);
+						return Some(
+							WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(next_secondary_authorities)
+								.expect(
+								"Initial number of secondary authorities should be lower than T::MaxSecondaryAuthorities",
+							)
+						);
+					}
+				}
+			}
+		}
+		return None;
+	}
 }
 
 impl<T: Config> OnTimestampSet<T::Moment> for Pallet<T> {
@@ -1039,80 +1109,9 @@ impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 			),
 		);
 
-		let next_bounded_primary_authorities = WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::force_from(
-			next_authorities.clone(),
-			Some(
-				"Warning: The session has more queued validators than expected. \
-				A runtime configuration adjustment may be needed.",
-			),
-		);
+		let next_bounded_primary_authorities = Self::select_next_epoch_primary_authorities(&next_authorities).unwrap();
 
-		let next_bounded_secondary_authorities = WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::force_from(
-			next_authorities,
-			Some(
-				"Warning: The session has more queued validators than expected. \
-				A runtime configuration adjustment may be needed.",
-			),
-		);
-
-		Self::enact_epoch_change(bounded_authorities, next_bounded_authorities, next_bounded_primary_authorities, next_bounded_secondary_authorities)
-	}
-
-	fn on_disabled(i: u32) {
-		Self::deposit_consensus(ConsensusLog::OnDisabled(i))
-	}
-}
-
-impl<T: Config> TwoSessionHandler<T::AccountId> for Pallet<T> {
-	type Key = AuthorityId;
-
-	fn on_genesis_session<'a, I: 'a>(validators: I)
-	where
-		I: Iterator<Item = (&'a T::AccountId, AuthorityId)>,
-	{
-		let authorities = validators.map(|(_, k)| (k, 1)).collect::<Vec<_>>();
-		Self::initialize_authorities(&authorities);
-		Self::initialize_primary_authorities(&authorities);
-		Self::initialize_secondary_authorities(&authorities);
-	}
-
-	fn on_new_session<'a, I: 'a>(_changed: bool, validators: I, queued_validators: I)
-	where
-		I: Iterator<Item = (&'a T::AccountId, AuthorityId)>,
-	{
-		let authorities = validators.map(|(_account, k)| (k, 1)).collect::<Vec<_>>();
-		let bounded_authorities = WeakBoundedVec::<_, T::MaxAuthorities>::force_from(
-			authorities,
-			Some(
-				"Warning: The session has more validators than expected. \
-				A runtime configuration adjustment may be needed.",
-			),
-		);
-
-		let next_authorities = queued_validators.map(|(_account, k)| (k, 1)).collect::<Vec<_>>();
-		let next_bounded_authorities = WeakBoundedVec::<_, T::MaxAuthorities>::force_from(
-			next_authorities.clone(),
-			Some(
-				"Warning: The session has more queued validators than expected. \
-				A runtime configuration adjustment may be needed.",
-			),
-		);
-
-		let next_bounded_primary_authorities = WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::force_from(
-			next_authorities.clone(),
-			Some(
-				"Warning: The session has more queued validators than expected. \
-				A runtime configuration adjustment may be needed.",
-			),
-		);
-
-		let next_bounded_secondary_authorities = WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::force_from(
-			next_authorities,
-			Some(
-				"Warning: The session has more queued validators than expected. \
-				A runtime configuration adjustment may be needed.",
-			),
-		);
+		let next_bounded_secondary_authorities = Self::select_next_epoch_secondary_authorities(&next_authorities).unwrap();
 
 		Self::enact_epoch_change(bounded_authorities, next_bounded_authorities, next_bounded_primary_authorities, next_bounded_secondary_authorities)
 	}

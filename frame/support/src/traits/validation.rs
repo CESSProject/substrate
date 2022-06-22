@@ -112,26 +112,6 @@ pub trait OneSessionHandler<ValidatorId>: BoundToRuntimeAppPublic {
 	fn on_disabled(_validator_index: u32);
 }
 
-pub trait TwoSessionHandler<ValidatorId>: OneSessionHandler<ValidatorId> {
-	type Key: Decode + RuntimeAppPublic;
-	//type Key: Decode + AppKey;
-	
-	fn on_genesis_session<'a, I: 'a>(validators: I)
-	where
-		I: Iterator<Item = (&'a ValidatorId, <Self as TwoSessionHandler<ValidatorId>>::Key)>,
-		ValidatorId: 'a;
-
-	fn on_new_session<'a, I: 'a>(changed: bool, validators: I, queued_validators: I)
-		where
-			I: Iterator<Item = (&'a ValidatorId, <Self as TwoSessionHandler<ValidatorId>>::Key)>,
-			ValidatorId: 'a;
-
-	fn on_before_session_ending() {}
-
-	/// A validator got disabled. Act accordingly until a new session begins.
-	fn on_disabled(_validator_index: u32);
-}
-
 /// Something that can estimate at which block the next session rotation will happen (i.e. a new
 /// session starts).
 ///
