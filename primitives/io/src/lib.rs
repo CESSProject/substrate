@@ -43,7 +43,7 @@ use sp_core::{
 	traits::{RuntimeSpawnExt, TaskExecutorExt},
 };
 #[cfg(feature = "std")]
-use sp_keystore::{KeystoreExt, SyncCryptoStore};
+use sp_keystore::{KeystoreExt, SyncCryptoStore, vrf::VRFTranscriptData};
 
 use sp_core::{
 	crypto::KeyTypeId,
@@ -786,6 +786,18 @@ pub trait Crypto {
 	/// signature version.
 	fn sr25519_verify(sig: &sr25519::Signature, msg: &[u8], pubkey: &sr25519::Public) -> bool {
 		sr25519::Pair::verify_deprecated(sig, msg, pubkey)
+	}
+
+	fn sr25519_vrf_sign_to_u128(
+		&mut self,
+		key_type: KeyTypeId,
+		authority_id: &sr25519::Public,
+		transcript_data: VRFTranscriptData,
+	) -> u128 {
+		let keystore = &***self
+		.extension::<KeystoreExt>()
+		.expect("No `keystore` associated for the current context!");
+		SyncCryptoStore::sr25519_vrf_sign_to_u128(keystore, key_type, authority_id, transcript_data)
 	}
 
 	/// Returns all `ecdsa` public keys for the given key id from the keystore.

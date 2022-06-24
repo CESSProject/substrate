@@ -1023,6 +1023,17 @@ impl<T: Config> Pallet<T> {
 		}
 		return None;
 	}
+
+	fn sr25519_vrf_sign_to_u128(
+		key_type: KeyTypeId,
+		public: &sr25519::Public,
+		randomness: &Randomness, 
+		epoch: u64
+	) -> u128 {
+		let transcript = cessp_consensus_rrsc::make_transcript(randomness, epoch);
+		let transcript_date = cessp_consensus_rrsc::make_transcript_data(randomness, epoch);
+		sp_io::crypto::sr25519_vrf_sign_to_u128(key_type, public, transcript_data)
+	}
 }
 
 impl<T: Config> OnTimestampSet<T::Moment> for Pallet<T> {
