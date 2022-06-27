@@ -21,12 +21,12 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![warn(unused_must_use, unsafe_code, unused_variables, unused_must_use)]
 
-use codec::{Decode, Encode};
+use codec::{Decode, Encode, alloc::string::ToString};
 use frame_support::{
 	dispatch::DispatchResultWithPostInfo,
 	traits::{
 		ConstU32, DisabledValidators, FindAuthor, Get, KeyOwnerProofSystem, OnTimestampSet,
-		OneSessionHandler,
+		OneSessionHandler, Randomness as RandomnessT,
 	},
 	weights::{Pays, Weight},
 	BoundedVec, WeakBoundedVec,
@@ -127,7 +127,7 @@ pub mod pallet {
 
 	#[pallet::config]
 	#[pallet::disable_frame_system_supertrait_check]
-	pub trait Config: pallet_timestamp::Config {
+	pub trait Config: pallet_timestamp::Config + frame_system::Config + pallet_randomness_collective_flip::Config {
 		/// The amount of time, in slots, that each epoch should last.
 		/// NOTE: Currently it is not possible to change the epoch duration after
 		/// the chain has started. Attempting to do so will brick block production.
@@ -462,6 +462,13 @@ pub mod pallet {
 			PendingEpochConfigChange::<T>::put(config);
 			Ok(())
 		}
+
+		#[pallet::weight(0)]
+		pub fn random_module_example(origin: OriginFor<T>) -> DispatchResult {
+				let _random_value = <pallet_randomness_collective_flip::Pallet<T>>::random(&b"my context"[..]);
+				Ok(())
+		}
+
 	}
 
 	#[pallet::validate_unsigned]
@@ -612,12 +619,12 @@ impl<T: Config> Pallet<T> {
 		let next_randomness = NextRandomness::<T>::get();
 
 		// Primary Authorities participate in block generation during elected epoch
-		let primary_authorities = Self::select_primary_authorities();
+		let primary_authorities = Self::select_next_epoch_primary_authorities(&next_authorities).unwrap();
 		PrimaryAuthorities::<T>::put(primary_authorities.clone());
 
 		// Secondary Authorities participate in block generation during elected epoch
 		// if Primary Authority fails to generate block.
-		let secondary_authorities = Self::select_secondary_authorities();
+		let secondary_authorities = Self::select_next_epoch_secondary_authorities(&next_authorities).unwrap();
 		SecondaryAuthorities::<T>::put(secondary_authorities.clone());
 
 		let next_epoch = NextEpochDescriptor {
@@ -940,20 +947,6 @@ impl<T: Config> Pallet<T> {
 		.ok()
 	}
 
-	fn select_primary_authorities(
-	) -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities> {
-		WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(Self::authorities().to_vec())
-			.expect(
-			"Initial number of primary authorities should be lower than T::MaxPrimaryAuthorities",
-		)
-	}
-
-	fn select_secondary_authorities(
-	) -> WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities> {
-		WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(Self::authorities().to_vec())
-				.expect("Initial number of secondary authorities should be lower than T::MaxSecondaryAuthorities")
-	}
-
 	fn select_next_epoch_primary_authorities(
 		next_authorities: &[(AuthorityId, u64)]
 	) -> Option<WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities>>
@@ -964,29 +957,36 @@ impl<T: Config> Pallet<T> {
 			.map(|(index, a)| (a, index))
 			.collect::<Vec<_>>();
 		let mut next_primary_authorities: Vec<(AuthorityId, u64)> = vec![];
+		let mut authority_index_hash: Vec<(usize, (AuthorityId, u64),T::Hash)> = vec![];
 		let max_primary_authorities = if next_authorities.len() < T::MaxPrimaryAuthorities::get() as usize {
 				next_authorities.len()
 			} else {
 				T::MaxPrimaryAuthorities::get() as usize
 			};
 
-		while next_primary_authorities.len() <= max_primary_authorities {
-			for ((authority_id, authority_weight), authority_index) in &keys {
-				if !next_primary_authorities.contains(&(authority_id.clone(), *authority_weight)) {
-					next_primary_authorities.push((authority_id.clone(), *authority_weight));
-					if next_primary_authorities.len() == max_primary_authorities {
-						log::info!("{:?}", next_primary_authorities);
-						return Some(
-							WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(next_primary_authorities)
-								.expect(
-								"Initial number of primary authorities should be lower than T::MaxPrimaryAuthorities",
-							)
-						);
-					}
-				}
-			}
+		for ((authority_id, authority_weight), authority_index) in &keys {
+			let hash = Self::random_hash(&authority_index);
+			authority_index_hash.push((*authority_index, (authority_id.clone(), *authority_weight), hash));
 		}
-		return None;
+		
+		authority_index_hash.sort_by_key(|h| h.2);
+		let mut ak = authority_index_hash[0..max_primary_authorities]
+			.iter()
+			.enumerate()
+			.map(|(_, a)| a.1.clone())
+			.collect::<Vec<_>>();
+
+		next_primary_authorities.append(&mut ak);
+		if authority_index_hash.len() > 0 {
+			return Some(
+				WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(next_primary_authorities)
+					.expect(
+					"Initial number of primary authorities should be lower than T::MaxPrimaryAuthorities",
+				)
+			);
+		} else {
+			return None;
+		}
 	}
 	
 	fn select_next_epoch_secondary_authorities(
@@ -999,41 +999,56 @@ impl<T: Config> Pallet<T> {
 			.map(|(index, a)| (a, index))
 			.collect::<Vec<_>>();
 		let mut next_secondary_authorities: Vec<(AuthorityId, u64)> = vec![];
+		let mut authority_index_hash: Vec<(usize, (AuthorityId, u64),T::Hash)> = vec![];
 		let max_secondary_authorities = if next_authorities.len() < T::MaxSecondaryAuthorities::get() as usize {
 			next_authorities.len()
 		} else {
 			T::MaxSecondaryAuthorities::get() as usize
 		};
 
-		while next_secondary_authorities.len() <= max_secondary_authorities {
-			for ((authority_id, authority_weight), authority_index) in &keys {
-				if !next_secondary_authorities.contains(&(authority_id.clone(), *authority_weight)) {
-					next_secondary_authorities.push((authority_id.clone(), *authority_weight));
-					if next_secondary_authorities.len() == max_secondary_authorities {
-						log::info!("{:?}", next_secondary_authorities);
-						return Some(
-							WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(next_secondary_authorities)
-								.expect(
-								"Initial number of secondary authorities should be lower than T::MaxSecondaryAuthorities",
-							)
-						);
-					}
-				}
-			}
+		for ((authority_id, authority_weight), authority_index) in &keys {
+			let hash = Self::random_hash(&authority_index);
+			authority_index_hash.push((*authority_index, (authority_id.clone(), *authority_weight), hash));
 		}
-		return None;
+		
+		authority_index_hash.sort_by_key(|h| h.2);
+		let mut ak = authority_index_hash[0..max_secondary_authorities]
+			.iter()
+			.enumerate()
+			.map(|(_, a)| a.1.clone())
+			.collect::<Vec<_>>();
+
+		next_secondary_authorities.append(&mut ak);
+		if authority_index_hash.len() > 0 {
+			return Some(
+				WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(next_secondary_authorities)
+					.expect(
+					"Initial number of primary authorities should be lower than T::MaxSecondaryAuthorities",
+				)
+			);
+		} else {
+			return None;
+		}
 	}
 
-	fn sr25519_vrf_sign_to_u128(
-		key_type: KeyTypeId,
-		public: &sr25519::Public,
-		randomness: &Randomness, 
-		epoch: u64
-	) -> u128 {
-		let transcript = cessp_consensus_rrsc::make_transcript(randomness, epoch);
-		let transcript_date = cessp_consensus_rrsc::make_transcript_data(randomness, epoch);
-		sp_io::crypto::sr25519_vrf_sign_to_u128(key_type, public, transcript_data)
+	fn random_hash(authority_index: &usize) -> T::Hash {
+		let mut b_context = "select_primary_authorities".to_string();
+		b_context.push_str(authority_index.to_string().as_str());
+		let (hash, _) = CurrentBlockRandomness::<T>::random(&b_context.as_bytes());
+		let hash = hash.unwrap();
+		hash
 	}
+
+	// fn sr25519_vrf_sign_to_u128(
+	// 	key_type: KeyTypeId,
+	// 	public: &sr25519::Public,
+	// 	randomness: &Randomness, 
+	// 	epoch: u64
+	// ) -> u128 {
+	// 	let transcript = cessp_consensus_rrsc::make_transcript(randomness, epoch);
+	// 	let transcript_date = cessp_consensus_rrsc::make_transcript_data(randomness, epoch);
+	// 	sp_io::crypto::sr25519_vrf_sign_to_u128(key_type, public, transcript_data)
+	// }
 }
 
 impl<T: Config> OnTimestampSet<T::Moment> for Pallet<T> {

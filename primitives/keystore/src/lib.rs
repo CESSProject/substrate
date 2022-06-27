@@ -189,12 +189,12 @@ pub trait CryptoStore: Send + Sync {
 		transcript_data: VRFTranscriptData,
 	) -> Result<Option<VRFSignature>, Error>;
 
-	async fn sr25519_vrf_sign_to_u128(
-		&self,
-		key_type: KeyTypeId,
-		public: &sr25519::Public,
-		transcript_data: VRFTranscriptData,
-	) -> u128;
+	// async fn sr25519_vrf_sign_to_u128(
+	// 	&self,
+	// 	key_type: KeyTypeId,
+	// 	public: &sr25519::Public,
+	// 	transcript_data: VRFTranscriptData,
+	// ) -> u128;
 
 	/// Generate an ECDSA signature for a given pre-hashed message.
 	///
@@ -371,12 +371,12 @@ pub trait SyncCryptoStore: CryptoStore + Send + Sync {
 		transcript_data: VRFTranscriptData,
 	) -> Result<Option<VRFSignature>, Error>;
 
-	fn sr25519_vrf_sign_to_u128(
-		&self,
-		key_type: KeyTypeId,
-		public: &sr25519::Public,
-		transcript_data: VRFTranscriptData,
-	) -> u128;
+	// fn sr25519_vrf_sign_to_u128(
+	// 	&self,
+	// 	key_type: KeyTypeId,
+	// 	public: &sr25519::Public,
+	// 	transcript_data: VRFTranscriptData,
+	// ) -> u128;
 
 	/// Generate an ECDSA signature for a given pre-hashed message.
 	///

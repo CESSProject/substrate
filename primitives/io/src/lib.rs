@@ -788,17 +788,17 @@ pub trait Crypto {
 		sr25519::Pair::verify_deprecated(sig, msg, pubkey)
 	}
 
-	fn sr25519_vrf_sign_to_u128(
-		&mut self,
-		key_type: KeyTypeId,
-		authority_id: &sr25519::Public,
-		transcript_data: VRFTranscriptData,
-	) -> u128 {
-		let keystore = &***self
-		.extension::<KeystoreExt>()
-		.expect("No `keystore` associated for the current context!");
-		SyncCryptoStore::sr25519_vrf_sign_to_u128(keystore, key_type, authority_id, transcript_data)
-	}
+	// fn sr25519_vrf_sign_to_u128(
+	// 	&mut self,
+	// 	key_type: KeyTypeId,
+	// 	authority_id: &sr25519::Public,
+	// 	transcript_data: VRFTranscriptData,
+	// ) -> u128 {
+	// 	let keystore = &***self
+	// 	.extension::<KeystoreExt>()
+	// 	.expect("No `keystore` associated for the current context!");
+	// 	SyncCryptoStore::sr25519_vrf_sign_to_u128(keystore, key_type, authority_id, transcript_data)
+	// }
 
 	/// Returns all `ecdsa` public keys for the given key id from the keystore.
 	fn ecdsa_public_keys(&mut self, id: KeyTypeId) -> Vec<ecdsa::Public> {

@@ -340,22 +340,22 @@ impl SyncCryptoStore for LocalKeystore {
 		}
 	}
 
-	fn sr25519_vrf_sign_to_u128(
-		&self,
-		key_type: KeyTypeId,
-		public: &sr25519::Public,
-		transcript_data: VRFTranscriptData,
-	) -> u128 {
-		let transcript = make_transcript(transcript_data);
-		let pair = self.0.read().key_pair_by_type::<Sr25519Pair>(public, key_type)?;
+	// fn sr25519_vrf_sign_to_u128(
+	// 	&self,
+	// 	key_type: KeyTypeId,
+	// 	public: &sr25519::Public,
+	// 	transcript_data: VRFTranscriptData,
+	// ) -> u128 {
+	// 	let transcript = make_transcript(transcript_data);
+	// 	let pair = self.0.read().key_pair_by_type::<Sr25519Pair>(public, key_type)?;
 
-		if let Some(pair) = pair {
-			let (inout, _, _) = pair.as_ref().vrf_sign(transcript);
-			u128::from_le_bytes(inout.make_bytes::<[u8; 16]>(cessp_consensus_rrsc::RRSC_VRF_PREFIX))
-		} else {
-			u128::MAX
-		}
-	}
+	// 	if let Some(pair) = pair {
+	// 		let (inout, _, _) = pair.as_ref().vrf_sign(transcript);
+	// 		u128::from_le_bytes(inout.make_bytes::<[u8; 16]>(cessp_consensus_rrsc::RRSC_VRF_PREFIX))
+	// 	} else {
+	// 		u128::MAX
+	// 	}
+	// }
 
 	fn ecdsa_sign_prehashed(
 		&self,
