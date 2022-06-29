@@ -21,79 +21,14 @@
 use super::Epoch;
 use cessp_consensus_rrsc::{
 	digests::{PreDigest, PrimaryPreDigest, SecondaryPlainPreDigest, SecondaryVRFPreDigest},
-	make_transcript, make_transcript_data, AuthorityId, RRSCAuthorityWeight, Slot, RRSC_VRF_PREFIX, ConsensusLog,
+	make_transcript_data, AuthorityId, RRSCAuthorityWeight, Slot, RRSC_VRF_PREFIX,
 };
-use codec::{Encode, Decode};
-use schnorrkel::{vrf::VRFInOut, PublicKey};
+use codec::Encode;
+use schnorrkel::vrf::VRFInOut;
 use sp_application_crypto::AppKey;
 use sp_consensus_vrf::schnorrkel::{VRFOutput, VRFProof};
 use sp_core::{blake2_256, crypto::ByteArray, U256};
 use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
-use pallet_rrsc::{ Pallet, Config };
-use frame_support::WeakBoundedVec;
-//use sp_application_crypto::RuntimeAppPublic;
-
-/// Calculates the primary selection threshold for a given authority, taking
-/// into account `c` (`1 - c` represents the probability of a slot being empty).
-pub(super) fn calculate_primary_threshold(
-	c: (u64, u64),
-	authorities: &[(AuthorityId, RRSCAuthorityWeight)],
-	authority_index: usize,
-) -> u128 {
-	use num_bigint::BigUint;
-	use num_rational::BigRational;
-	use num_traits::{cast::ToPrimitive, identities::One};
-
-	let c = c.0 as f64 / c.1 as f64;
-
-	let theta = authorities[authority_index].1 as f64
-		/ authorities.iter().map(|(_, weight)| weight).sum::<u64>() as f64;
-
-	assert!(theta > 0.0, "authority with weight 0.");
-
-	// NOTE: in the equation `p = 1 - (1 - c)^theta` the value of `p` is always
-	// capped by `c`. For all pratical purposes `c` should always be set to a
-	// value < 0.5, as such in the computations below we should never be near
-	// edge cases like `0.999999`.
-
-	let p = BigRational::from_float(1f64 - (1f64 - c).powf(theta)).expect(
-		"returns None when the given value is not finite; \
-		 c is a configuration parameter defined in (0, 1]; \
-		 theta must be > 0 if the given authority's weight is > 0; \
-		 theta represents the validator's relative weight defined in (0, 1]; \
-		 powf will always return values in (0, 1] given both the \
-		 base and exponent are in that domain; \
-		 qed.",
-	);
-
-	let numer = p.numer().to_biguint().expect(
-		"returns None when the given value is negative; \
-		 p is defined as `1 - n` where n is defined in (0, 1]; \
-		 p must be a value in [0, 1); \
-		 qed.",
-	);
-
-	let denom = p.denom().to_biguint().expect(
-		"returns None when the given value is negative; \
-		 p is defined as `1 - n` where n is defined in (0, 1]; \
-		 p must be a value in [0, 1); \
-		 qed.",
-	);
-
-	((BigUint::one() << 128) * numer / denom).to_u128().expect(
-		"returns None if the underlying value cannot be represented with 128 bits; \
-		 we start with 2^128 which is one more than can be represented with 128 bits; \
-		 we multiple by p which is defined in [0, 1); \
-		 the result must be lower than 2^128 by at least one and thus representable with 128 bits; \
-		 qed.",
-	)
-}
-
-/// Returns true if the given VRF output is lower than the given threshold,
-/// false otherwise.
-pub(super) fn check_primary_threshold(inout: &VRFInOut, threshold: u128) -> bool {
-	u128::from_le_bytes(inout.make_bytes::<[u8; 16]>(RRSC_VRF_PREFIX)) < threshold
-}
 
 /// Get the expected secondary author for the given slot and with given
 /// authorities. This should always assign the slot to some authority unless the
@@ -141,7 +76,7 @@ fn claim_secondary_slot(
 	for (authority_id, authority_index) in keys {
 		if authority_id == expected_author {
 			let pre_digest = if author_secondary_vrf {
-				let transcript_data = make_transcript_data(randomness, /*slot,*/ *epoch_index);
+				let transcript_data = make_transcript_data(randomness, slot, *epoch_index);
 				let result = SyncCryptoStore::sr25519_vrf_sign(
 					&**keystore,
 					AuthorityId::ID,
@@ -188,13 +123,7 @@ pub fn claim_slot(
 	epoch: &Epoch,
 	keystore: &SyncCryptoStorePtr,
 ) -> Option<(PreDigest, AuthorityId)> {
-	// let authorities = epoch
-	// 	.primary_authorities
-	// 	.iter()
-	// 	.enumerate()
-	// 	.map(|(index, a)| (a.0.clone(), index))
-	// 	.collect::<Vec<_>>();
-	claim_slot_using_keys(slot, epoch, keystore/*, &authorities*/)
+	claim_slot_using_keys(slot, epoch, keystore)
 }
 
 /// Like `claim_slot`, but allows passing an explicit set of key pairs. Useful if we intend
@@ -203,7 +132,6 @@ pub fn claim_slot_using_keys(
 	slot: Slot,
 	epoch: &Epoch,
 	keystore: &SyncCryptoStorePtr,
-	//keys: &[(AuthorityId, usize)],
 ) -> Option<(PreDigest, AuthorityId)> {
 	let primary_authorities_keys = epoch
 		.primary_authorities
@@ -211,7 +139,7 @@ pub fn claim_slot_using_keys(
 		.enumerate()
 		.map(|(index, a)| (a.0.clone(), index))
 		.collect::<Vec<_>>();
-	primary_slot_author(slot, epoch, /*epoch.config.c,*/ keystore, &primary_authorities_keys).or_else(|| {
+	primary_slot_author(slot, epoch, keystore, &primary_authorities_keys).or_else(|| {
 		if epoch.config.allowed_slots.is_secondary_plain_slots_allowed()
 			|| epoch.config.allowed_slots.is_secondary_vrf_slots_allowed()
 		{
@@ -241,14 +169,11 @@ pub fn claim_slot_using_keys(
 fn primary_slot_author(
 	slot: Slot,
 	epoch: &Epoch,
-	// c: (u64, u64),
 	keystore: &SyncCryptoStorePtr,
 	keys: &[(AuthorityId, usize)],
 ) -> Option<(PreDigest, AuthorityId)> {
 	let Epoch {
-		// authorities,
 		primary_authorities,
-		// secondary_authorities,
 		randomness,
 		epoch_index,
 		..
@@ -261,8 +186,7 @@ fn primary_slot_author(
 	let slot_autority_index = *slot as usize % keys.len();
 	let (authority_id, authority_index) = &keys[slot_autority_index];
 
-	// let transcript = make_transcript(randomness, /*slot,*/ *epoch_index);
-	let transcript_data = make_transcript_data(randomness, /*slot,*/ *epoch_index);
+	let transcript_data = make_transcript_data(randomness, slot, *epoch_index);
 
 	let result = SyncCryptoStore::sr25519_vrf_sign(
 		&**keystore,
@@ -271,9 +195,6 @@ fn primary_slot_author(
 		transcript_data,
 	);
 	if let Ok(Some(signature)) = result {
-		// let public = PublicKey::from_bytes(&authority_id.to_raw_vec()).ok()?;
-		// let inout = signature.output.attach_input_hash(&public, transcript).ok()?;
-
 		let pre_digest = PreDigest::Primary(PrimaryPreDigest {
 			slot,
 			vrf_output: VRFOutput(signature.output),
@@ -284,115 +205,6 @@ fn primary_slot_author(
 	};
 	None
 }
-
-fn select_next_epoch_primary_authorities<T: Config>(
-	epoch: &Epoch, 
-	keystore: &SyncCryptoStorePtr,
-	next_authorities: &[(AuthorityId, u64)]
-) -> Option<WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities>>
-{
-	let keys = next_authorities.iter()
-			.enumerate()
-			.map(|(index, a)| (a, index))
-			.collect::<Vec<_>>();
-	let Epoch { authorities, randomness, epoch_index, .. } = epoch;
-	let mut next_primary_authorities: Vec<(AuthorityId, u64)> = vec![];
-
-	while next_primary_authorities.len() <= 11 {
-		for ((authority_id, authority_weight), authority_index) in &keys {
-			let transcript = make_transcript(randomness, *epoch_index);
-			let transcript_data = make_transcript_data(randomness, *epoch_index);
-
-			let threshold = calculate_primary_threshold((3, 10), authorities, *authority_index);
-
-			let result = SyncCryptoStore::sr25519_vrf_sign(
-				&**keystore,
-				AuthorityId::ID,
-				authority_id.as_ref(),
-				transcript_data,
-			);
-			if let Ok(Some(signature)) = result {
-				let public = match PublicKey::from_bytes(&authority_id.to_raw_vec()) {
-					Ok(pk) => pk,
-					Err(_) => continue,
-				};
-				let inout = match signature.output.attach_input_hash(&public, transcript) {
-					Ok(inout) => inout,
-					Err(_) => continue,
-				};
-				if check_primary_threshold(&inout, threshold) {
-					next_primary_authorities.push((authority_id.clone(), *authority_weight));
-					if next_primary_authorities.len() == 11 {
-						return Some(
-							WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(next_primary_authorities)
-								.expect(
-								"Initial number of primary authorities should be lower than T::MaxPrimaryAuthorities",
-							)
-						)  ;
-					} else {
-						return None;
-					}
-				}
-			}
-		}
-	}
-	return None;
-}
-
-fn select_next_epoch_secondary_authorities<T: Config>(	
-	epoch: &Epoch, 
-	keystore: &SyncCryptoStorePtr,
-	next_authorities: &[(AuthorityId, u64)]
-) -> Option<WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities>>
-{
-	let keys = next_authorities.iter()
-			.enumerate()
-			.map(|(index, a)| (a, index))
-			.collect::<Vec<_>>();
-	let Epoch { authorities, randomness, epoch_index, .. } = epoch;
-	let mut next_secondary_authorities: Vec<(AuthorityId, u64)> = vec![];
-
-	while next_secondary_authorities.len() < 11 {
-		for ((authority_id, authority_weight), authority_index) in &keys {
-			let transcript = make_transcript(randomness, *epoch_index);
-			let transcript_data = make_transcript_data(randomness, *epoch_index);
-
-			let threshold = calculate_primary_threshold((3, 10), authorities, *authority_index);
-
-			let result = SyncCryptoStore::sr25519_vrf_sign(
-				&**keystore,
-				AuthorityId::ID,
-				authority_id.as_ref(),
-				transcript_data,
-			);
-			if let Ok(Some(signature)) = result {
-				let public = match PublicKey::from_bytes(&authority_id.to_raw_vec()) {
-					Ok(pk) => pk,
-					Err(_) => continue,
-				};
-				let inout = match signature.output.attach_input_hash(&public, transcript) {
-					Ok(inout) => inout,
-					Err(_) => continue,
-				};
-				if check_primary_threshold(&inout, threshold) {
-					next_secondary_authorities.push((authority_id.clone(), *authority_weight));
-					if next_secondary_authorities.len() == 11 {
-						return Some(
-							WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(next_secondary_authorities)
-								.expect(
-								"Initial number of primary authorities should be lower than T::MaxSecondaryAuthorities",
-							)
-						)  ;
-					} else {
-						return None;
-					}
-				}
-			}
-		}
-	}
-	return None;
-}
-
 
 #[cfg(test)]
 mod tests {

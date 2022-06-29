@@ -18,7 +18,7 @@
 
 //! Verification for RRSC headers.
 use super::{
-	authorship::{calculate_primary_threshold, check_primary_threshold, secondary_slot_author},
+	authorship::secondary_slot_author,
 	rrsc_err, find_pre_digest, BlockT, Epoch, Error,
 };
 use log::{debug, trace};
@@ -154,23 +154,6 @@ fn check_primary_header<B: BlockT + Sized>(
 	let author = &epoch.authorities[pre_digest.authority_index as usize].0;
 
 	if AuthorityPair::verify(&signature, pre_hash, &author) {
-		let (inout, _) = {
-			let transcript = make_transcript(&epoch.randomness, /*pre_digest.slot,*/ epoch.epoch_index);
-
-			schnorrkel::PublicKey::from_bytes(author.as_slice())
-				.and_then(|p| {
-					p.vrf_verify(transcript, &pre_digest.vrf_output, &pre_digest.vrf_proof)
-				})
-				.map_err(|s| rrsc_err(Error::VRFVerificationFailed(s)))?
-		};
-
-		let threshold =
-			calculate_primary_threshold(c, &epoch.authorities, pre_digest.authority_index as usize);
-
-		if !check_primary_threshold(&inout, threshold) {
-			return Err(rrsc_err(Error::VRFVerificationOfBlockFailed(author.clone(), threshold)))
-		}
-
 		Ok(())
 	} else {
 		Err(rrsc_err(Error::BadSignature(pre_hash)))
@@ -226,7 +209,7 @@ fn check_secondary_vrf_header<B: BlockT>(
 	}
 
 	if AuthorityPair::verify(&signature, pre_hash.as_ref(), author) {
-		let transcript = make_transcript(&epoch.randomness, /*pre_digest.slot,*/ epoch.epoch_index);
+		let transcript = make_transcript(&epoch.randomness, pre_digest.slot, epoch.epoch_index);
 
 		schnorrkel::PublicKey::from_bytes(author.as_slice())
 			.and_then(|p| p.vrf_verify(transcript, &pre_digest.vrf_output, &pre_digest.vrf_proof))

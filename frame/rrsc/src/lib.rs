@@ -100,12 +100,8 @@ impl EpochChangeTrigger for SameAuthoritiesForever {
 		if <Pallet<T>>::should_epoch_change(now) {
 			let authorities = <Pallet<T>>::authorities();
 			let next_authorities = authorities.clone();
-			let next_primary_authorities = WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(authorities.to_vec())
-				.expect("Initial number of authorities should be lower than T::MaxPrimaryAuthorities");
-			let next_secondary_authorities = WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(authorities.to_vec())
-			.expect("Initial number of authorities should be lower than T::MaxSecondaryAuthorities");
 
-			<Pallet<T>>::enact_epoch_change(authorities, next_authorities, next_primary_authorities, next_secondary_authorities);
+			<Pallet<T>>::enact_epoch_change(authorities, next_authorities);
 		}
 	}
 }
@@ -276,22 +272,6 @@ pub mod pallet {
 	pub(super) type NextAuthorities<T: Config> = StorageValue<
 		_,
 		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxAuthorities>,
-		ValueQuery,
-	>;
-
-	/// Next epoch primary authorities.
-	#[pallet::storage]
-	pub(super) type NextPrimaryAuthorities<T: Config> = StorageValue<
-		_,
-		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities>,
-		ValueQuery,
-	>;
-
-	/// Next epoch secondary authorities.
-	#[pallet::storage]
-	pub(super) type NextSecondaryAuthorities<T: Config> = StorageValue<
-		_,
-		WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities>,
 		ValueQuery,
 	>;
 
@@ -578,8 +558,6 @@ impl<T: Config> Pallet<T> {
 	pub fn enact_epoch_change(
 		authorities: WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxAuthorities>,
 		next_authorities: WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxAuthorities>,
-		next_primary_authorities: WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities>,
-		next_secondary_authorities: WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities>,
 	) {
 		// PRECONDITION: caller has done initialization and is guaranteed
 		// by the session module to be called before this.
@@ -605,8 +583,6 @@ impl<T: Config> Pallet<T> {
 
 		// Update the next epoch authorities.
 		NextAuthorities::<T>::put(&next_authorities);
-		NextPrimaryAuthorities::<T>::put(&next_primary_authorities);
-		NextSecondaryAuthorities::<T>::put(&next_secondary_authorities);
 
 		// Update the start blocks of the previous and new current epoch.
 		<EpochStart<T>>::mutate(|(previous_epoch_start_block, current_epoch_start_block)| {
@@ -619,18 +595,20 @@ impl<T: Config> Pallet<T> {
 		let next_randomness = NextRandomness::<T>::get();
 
 		// Primary Authorities participate in block generation during elected epoch
-		let primary_authorities = Self::select_next_epoch_primary_authorities(&next_authorities).unwrap();
+		log::info!( target: "rrsc", "select_epoch_primary_authorities");
+		let primary_authorities = Self::select_epoch_primary_authorities(&authorities).unwrap();
 		PrimaryAuthorities::<T>::put(primary_authorities.clone());
 
 		// Secondary Authorities participate in block generation during elected epoch
 		// if Primary Authority fails to generate block.
-		let secondary_authorities = Self::select_next_epoch_secondary_authorities(&next_authorities).unwrap();
+		log::info!( target: "rrsc", "select_epoch_secondary_authorities");
+		let secondary_authorities = Self::select_epoch_secondary_authorities(&authorities).unwrap();
 		SecondaryAuthorities::<T>::put(secondary_authorities.clone());
 
 		let next_epoch = NextEpochDescriptor {
 			authorities: next_authorities.to_vec(),
-			primary_authorities: next_primary_authorities.to_vec(),
-			secondary_authorities: next_secondary_authorities.to_vec(),
+			primary_authorities: primary_authorities.to_vec(),
+			secondary_authorities: secondary_authorities.to_vec(),
 			randomness: next_randomness,
 		};
 		Self::deposit_consensus(ConsensusLog::NextEpochData(next_epoch));
@@ -804,7 +782,7 @@ impl<T: Config> Pallet<T> {
 					.and_then(|pubkey| {
 						let transcript = cessp_consensus_rrsc::make_transcript(
 							&Self::randomness(),
-							//current_slot,
+							current_slot,
 							EpochIndex::<T>::get(),
 						);
 
@@ -947,25 +925,24 @@ impl<T: Config> Pallet<T> {
 		.ok()
 	}
 
-	fn select_next_epoch_primary_authorities(
-		next_authorities: &[(AuthorityId, u64)]
+	fn select_epoch_primary_authorities(
+		authorities: &[(AuthorityId, u64)]
 	) -> Option<WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxPrimaryAuthorities>>
 	{
-		log::info!("++++++++++++++++++++++Selecting primary authorities+++++++++++++++++++++++");
-		let keys = next_authorities.iter()
+		let keys = authorities.iter()
 			.enumerate()
 			.map(|(index, a)| (a, index))
 			.collect::<Vec<_>>();
-		let mut next_primary_authorities: Vec<(AuthorityId, u64)> = vec![];
+		let mut primary_authorities: Vec<(AuthorityId, u64)> = vec![];
 		let mut authority_index_hash: Vec<(usize, (AuthorityId, u64),T::Hash)> = vec![];
-		let max_primary_authorities = if next_authorities.len() < T::MaxPrimaryAuthorities::get() as usize {
-				next_authorities.len()
+		let max_primary_authorities = if authorities.len() < T::MaxPrimaryAuthorities::get() as usize {
+				authorities.len()
 			} else {
 				T::MaxPrimaryAuthorities::get() as usize
 			};
 
 		for ((authority_id, authority_weight), authority_index) in &keys {
-			let hash = Self::random_hash(&authority_index);
+			let hash = Self::random_hash("select_primary_authorities",&authority_index);
 			authority_index_hash.push((*authority_index, (authority_id.clone(), *authority_weight), hash));
 		}
 		
@@ -976,10 +953,10 @@ impl<T: Config> Pallet<T> {
 			.map(|(_, a)| a.1.clone())
 			.collect::<Vec<_>>();
 
-		next_primary_authorities.append(&mut ak);
+		primary_authorities.append(&mut ak);
 		if authority_index_hash.len() > 0 {
 			return Some(
-				WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(next_primary_authorities)
+				WeakBoundedVec::<_, T::MaxPrimaryAuthorities>::try_from(primary_authorities)
 					.expect(
 					"Initial number of primary authorities should be lower than T::MaxPrimaryAuthorities",
 				)
@@ -989,25 +966,24 @@ impl<T: Config> Pallet<T> {
 		}
 	}
 	
-	fn select_next_epoch_secondary_authorities(
-		next_authorities: &[(AuthorityId, u64)]
+	fn select_epoch_secondary_authorities(
+		authorities: &[(AuthorityId, u64)]
 	) -> Option<WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxSecondaryAuthorities>>
 	{
-		log::info!("+++++++++++++++++++++++++Selecting secondary authorities+++++++++++++++++++++");
-		let keys = next_authorities.iter()
+		let keys = authorities.iter()
 			.enumerate()
 			.map(|(index, a)| (a, index))
 			.collect::<Vec<_>>();
-		let mut next_secondary_authorities: Vec<(AuthorityId, u64)> = vec![];
+		let mut secondary_authorities: Vec<(AuthorityId, u64)> = vec![];
 		let mut authority_index_hash: Vec<(usize, (AuthorityId, u64),T::Hash)> = vec![];
-		let max_secondary_authorities = if next_authorities.len() < T::MaxSecondaryAuthorities::get() as usize {
-			next_authorities.len()
+		let max_secondary_authorities = if authorities.len() < T::MaxSecondaryAuthorities::get() as usize {
+			authorities.len()
 		} else {
 			T::MaxSecondaryAuthorities::get() as usize
 		};
 
 		for ((authority_id, authority_weight), authority_index) in &keys {
-			let hash = Self::random_hash(&authority_index);
+			let hash = Self::random_hash("select_secondary_authorities", &authority_index);
 			authority_index_hash.push((*authority_index, (authority_id.clone(), *authority_weight), hash));
 		}
 		
@@ -1018,10 +994,10 @@ impl<T: Config> Pallet<T> {
 			.map(|(_, a)| a.1.clone())
 			.collect::<Vec<_>>();
 
-		next_secondary_authorities.append(&mut ak);
+		secondary_authorities.append(&mut ak);
 		if authority_index_hash.len() > 0 {
 			return Some(
-				WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(next_secondary_authorities)
+				WeakBoundedVec::<_, T::MaxSecondaryAuthorities>::try_from(secondary_authorities)
 					.expect(
 					"Initial number of primary authorities should be lower than T::MaxSecondaryAuthorities",
 				)
@@ -1031,11 +1007,16 @@ impl<T: Config> Pallet<T> {
 		}
 	}
 
-	fn random_hash(authority_index: &usize) -> T::Hash {
-		let mut b_context = "select_primary_authorities".to_string();
+	fn random_hash(context: &str,authority_index: &usize) -> T::Hash {
+		let mut b_context = context.to_string();
 		b_context.push_str(authority_index.to_string().as_str());
 		let (hash, _) = CurrentBlockRandomness::<T>::random(&b_context.as_bytes());
-		let hash = hash.unwrap();
+		log::info!("{:?} Before Hash:: {:?}", b_context, hash);
+		let hash = 	match hash {
+				Some(h) => h,
+				None => T::Hash::default(),
+		};
+		log::info!("{:?} Hash:: {:?}", b_context, hash);
 		hash
 	}
 
@@ -1135,11 +1116,7 @@ impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 			),
 		);
 
-		let next_bounded_primary_authorities = Self::select_next_epoch_primary_authorities(&next_authorities).unwrap();
-
-		let next_bounded_secondary_authorities = Self::select_next_epoch_secondary_authorities(&next_authorities).unwrap();
-
-		Self::enact_epoch_change(bounded_authorities, next_bounded_authorities, next_bounded_primary_authorities, next_bounded_secondary_authorities)
+		Self::enact_epoch_change(bounded_authorities, next_bounded_authorities)
 	}
 
 	fn on_disabled(i: u32) {
