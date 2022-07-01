@@ -147,6 +147,15 @@ impl CryptoStore for KeyStore {
 		SyncCryptoStore::sr25519_vrf_sign(self, key_type, public, transcript_data)
 	}
 
+	// async fn sr25519_vrf_sign_to_u128(
+	// 	&self,
+	// 	key_type: KeyTypeId,
+	// 	public: &sr25519::Public,
+	// 	transcript_data: VRFTranscriptData,
+	// ) -> u128 {
+	// 	SyncCryptoStore::sr25519_vrf_sign_to_u128(self, key_type, public, transcript_data)
+	// }
+
 	async fn ecdsa_sign_prehashed(
 		&self,
 		id: KeyTypeId,
@@ -374,6 +383,20 @@ impl SyncCryptoStore for KeyStore {
 		let (inout, proof, _) = pair.as_ref().vrf_sign(transcript);
 		Ok(Some(VRFSignature { output: inout.to_output(), proof }))
 	}
+
+	// fn sr25519_vrf_sign_to_u128(
+	// 	&self,
+	// 	key_type: KeyTypeId,
+	// 	public: &sr25519::Public,
+	// 	transcript_data: VRFTranscriptData,
+	// ) -> u128 {
+	// 	let transcript = make_transcript(transcript_data);
+	// 	let pair =
+	// 		if let Some(k) = self.sr25519_key_pair(key_type, public) { k } else { return u128::MAX };
+
+	// 	let (inout, _, _) = pair.as_ref().vrf_sign(transcript);
+	// 	u128::from_le_bytes(inout.make_bytes::<[u8; 16]>(b"substrate-rrsc-vrf"))
+	// }
 
 	fn ecdsa_sign_prehashed(
 		&self,

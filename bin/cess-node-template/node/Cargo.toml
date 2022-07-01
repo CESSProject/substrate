@@ -1,0 +1,93 @@
+[package]
+name = "cess-node-template"
+version = "4.0.0-dev"
+description = "A fresh FRAME-based Substrate node, ready for hacking."
+authors = ["Substrate DevHub <https://github.com/substrate-developer-hub>"]
+homepage = "https://substrate.io/"
+edition = "2021"
+license = "Unlicense"
+publish = false
+repository = "https://github.com/substrate-developer-hub/substrate-node-template/"
+build = "build.rs"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[[bin]]
+name = "cess-node-template"
+
+[dependencies]
+clap = { version = "3.1.6", features = ["derive"] }
+codec = { package = "parity-scale-codec", version = "3.0.0" }
+rand = "0.8"
+futures = "0.3.19"
+serde = { version = "1.0.136", features = ["derive"] }
+hex-literal = "0.3.4"
+log = { version = "0.4.14", default-features = false }
+sc-cli = { version = "0.10.0-dev", path = "../../../client/cli", features = ["wasmtime"] }
+sp-core = { version = "6.0.0", path = "../../../primitives/core" }
+sc-executor = { version = "0.10.0-dev", path = "../../../client/executor", features = ["wasmtime"] }
+sc-service = { version = "0.10.0-dev", path = "../../../client/service", features = ["wasmtime"] }
+sc-telemetry = { version = "4.0.0-dev", path = "../../../client/telemetry" }
+sc-keystore = { version = "4.0.0-dev", path = "../../../client/keystore" }
+sc-transaction-pool = { version = "4.0.0-dev", path = "../../../client/transaction-pool" }
+sc-transaction-pool-api = { version = "4.0.0-dev", path = "../../../client/transaction-pool/api" }
+cessc-consensus-rrsc = { version = "0.10.0-dev", path = "../../../client/consensus/rrsc" }
+cessp-consensus-rrsc = { version = "0.10.0-dev", path = "../../../primitives/consensus/rrsc" }
+sp-consensus = { version = "0.10.0-dev", path = "../../../primitives/consensus/common" }
+sc-consensus = { version = "0.10.0-dev", path = "../../../client/consensus/common" }
+sc-client-api = { version = "4.0.0-dev", path = "../../../client/api" }
+sp-runtime = { version = "6.0.0", path = "../../../primitives/runtime" }
+sp-timestamp = { version = "4.0.0-dev", path = "../../../primitives/timestamp" }
+grandpa = { version = "0.10.0-dev", package = "sc-finality-grandpa", path = "../../../client/finality-grandpa" }
+grandpa-primitives = { version = "4.0.0-dev", package = "sp-finality-grandpa", path = "../../../primitives/finality-grandpa" }
+sc-authority-discovery = { version = "0.10.0-dev", path = "../../../client/authority-discovery" }
+sp-authorship = { version = "4.0.0-dev", path = "../../../primitives/authorship" }
+sc-finality-grandpa-rpc = { version = "0.10.0-dev", path = "../../../client/finality-grandpa/rpc" }
+cessc-consensus-rrsc-rpc = { version = "0.10.0-dev", path = "../../../client/consensus/rrsc/rpc" }
+pallet-im-online = { version = "4.0.0-dev", default-features = false, path = "../../../frame/im-online" }
+sp-transaction-storage-proof = { version = "4.0.0-dev", path = "../../../primitives/transaction-storage-proof" }
+sc-consensus-slots = { version = "0.10.0-dev", path = "../../../client/consensus/slots" }
+sc-consensus-uncles = { version = "0.10.0-dev", path = "../../../client/consensus/uncles" }
+cessc-sync-state-rpc = { version = "0.10.0-dev", path = "../../../client/rrsc-sync-state-rpc" }
+substrate-state-trie-migration-rpc = { version = "4.0.0-dev", path = "../../../utils/frame/rpc/state-trie-migration-rpc" }
+pallet-contracts-rpc = { version = "4.0.0-dev", path = "../../../frame/contracts/rpc/" }
+pallet-mmr-rpc = { version = "3.0.0", path = "../../../frame/merkle-mountain-range/rpc/" }
+sp-keystore = { version = "0.12.0", path = "../../../primitives/keystore" }
+sc-chain-spec = { version = "4.0.0-dev", path = "../../../client/chain-spec" }
+sc-network = { version = "0.10.0-dev", path = "../../../client/network" }
+sp-authority-discovery = { version = "4.0.0-dev", path = "../../../primitives/authority-discovery" }
+sc-consensus-epochs = { version = "0.10.0-dev", path = "../../../client/consensus/epochs" }
+frame-system-rpc-runtime-api = { version = "4.0.0-dev", default-features = false, path = "../../../frame/system/rpc/runtime-api/" }
+
+# These dependencies are used for the node template's RPCs
+jsonrpc-core = "18.0.0"
+sc-rpc = { version = "4.0.0-dev", path = "../../../client/rpc" }
+sp-api = { version = "4.0.0-dev", path = "../../../primitives/api" }
+sc-rpc-api = { version = "0.10.0-dev", path = "../../../client/rpc-api" }
+sp-blockchain = { version = "4.0.0-dev", path = "../../../primitives/blockchain" }
+sp-block-builder = { version = "4.0.0-dev", path = "../../../primitives/block-builder" }
+sc-basic-authorship = { version = "0.10.0-dev", path = "../../../client/basic-authorship" }
+substrate-frame-rpc-system = { version = "4.0.0-dev", path = "../../../utils/frame/rpc/system" }
+pallet-transaction-payment-rpc = { version = "4.0.0-dev", path = "../../../frame/transaction-payment/rpc/" }
+
+
+# These dependencies are used for runtime benchmarking
+frame-benchmarking = { version = "4.0.0-dev", path = "../../../frame/benchmarking" }
+frame-benchmarking-cli = { version = "4.0.0-dev", path = "../../../utils/frame/benchmarking-cli" }
+
+# Local Dependencies
+cess-node-template-runtime = { version = "4.0.0-dev", path = "../runtime" }
+
+# CLI-specific dependencies
+try-runtime-cli = { version = "0.10.0-dev", optional = true, path = "../../../utils/frame/try-runtime/cli" }
+
+[build-dependencies]
+substrate-build-script-utils = { version = "3.0.0", path = "../../../utils/build-script-utils" }
+
+[features]
+default = []
+runtime-benchmarks = ["cess-node-template-runtime/runtime-benchmarks"]
+# Enable features that allow the runtime to be tried and debugged. Name might be subject to change
+# in the near future.
+try-runtime = ["cess-node-template-runtime/try-runtime", "try-runtime-cli"]
