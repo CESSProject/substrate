@@ -21,10 +21,9 @@
 use super::Epoch;
 use cessp_consensus_rrsc::{
 	digests::{PreDigest, PrimaryPreDigest, SecondaryPlainPreDigest, SecondaryVRFPreDigest},
-	make_transcript_data, AuthorityId, RRSCAuthorityWeight, Slot, RRSC_VRF_PREFIX,
+	make_transcript_data, AuthorityId, RRSCAuthorityWeight, Slot,
 };
 use codec::Encode;
-use schnorrkel::vrf::VRFInOut;
 use sp_application_crypto::AppKey;
 use sp_consensus_vrf::schnorrkel::{VRFOutput, VRFProof};
 use sp_core::{blake2_256, crypto::ByteArray, U256};

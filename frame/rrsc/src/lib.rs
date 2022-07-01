@@ -123,7 +123,7 @@ pub mod pallet {
 
 	#[pallet::config]
 	#[pallet::disable_frame_system_supertrait_check]
-	pub trait Config: pallet_timestamp::Config + frame_system::Config + pallet_randomness_collective_flip::Config {
+	pub trait Config: pallet_timestamp::Config + frame_system::Config {
 		/// The amount of time, in slots, that each epoch should last.
 		/// NOTE: Currently it is not possible to change the epoch duration after
 		/// the chain has started. Attempting to do so will brick block production.
@@ -441,12 +441,6 @@ pub mod pallet {
 			ensure_root(origin)?;
 			PendingEpochConfigChange::<T>::put(config);
 			Ok(())
-		}
-
-		#[pallet::weight(0)]
-		pub fn random_module_example(origin: OriginFor<T>) -> DispatchResult {
-				let _random_value = <pallet_randomness_collective_flip::Pallet<T>>::random(&b"my context"[..]);
-				Ok(())
 		}
 
 	}
