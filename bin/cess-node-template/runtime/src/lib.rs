@@ -18,7 +18,7 @@ pub fn wasm_binary_unwrap() -> &'static [u8] {
 
 use codec::Decode;
 use codec::Encode;
-use frame_election_provider_support::{onchain, ExtendedBalance, SequentialPhragmen, VoteWeight};
+use frame_election_provider_support::{onchain, ExtendedBalance, VoteWeight};
 pub use pallet_file_bank;
 use pallet_grandpa::{
 	fg_primitives, AuthorityId as GrandpaId, AuthorityList as GrandpaAuthorityList,
@@ -593,7 +593,7 @@ impl pallet_cess_staking::Config for Runtime {
 	type NextNewSession = Session;
 	type MaxNominatorRewardedPerValidator = MaxNominatorRewardedPerValidator;
 	type OffendingValidatorsThreshold = OffendingValidatorsThreshold;
-	type ElectionProvider = onchain::BoundedExecution<OnChainSeqVrf>;
+	type ElectionProvider = ElectionProviderMultiPhase;
 	type GenesisElectionProvider = onchain::UnboundedExecution<OnChainSeqVrf>;
 	type VoterList = BagsList;
 	type MaxUnlockingChunks = ConstU32<32>;
@@ -738,9 +738,9 @@ impl onchain::ExecutionConfig for OnChainVrf {
 	type System = Runtime;
 	type Solver = pallet_rrsc::VrfSolver<
 		AccountId,
-		NposSolution16:Accuracy,
+		pallet_election_provider_multi_phase::SolutionAccuracyOf<Runtime>,
 	>;
-	type DataProvider = Staking;
+	type DataProvider = <Runtime as pallet_election_provider_multi_phase::Config>::DataProvider;
 }
 
 impl onchain::BoundedExecutionConfig for OnChainVrf {
@@ -769,9 +769,9 @@ impl pallet_election_provider_multi_phase::Config for Runtime {
 	type RewardHandler = (); // nothing to do upon rewards
 	type DataProvider = Staking;
 	type Solution = NposSolution16;
-	type Fallback = onchain::BoundedExecution<OnChainSeqPhragmen>;
-	type GovernanceFallback = onchain::BoundedExecution<OnChainSeqPhragmen>;
-	type Solver = SequentialPhragmen<AccountId, SolutionAccuracyOf<Self>, OffchainRandomBalancing>;
+	type Fallback = onchain::BoundedExecution<OnChainVrf>;
+	type GovernanceFallback = onchain::BoundedExecution<OnChainVrf>;
+	type Solver = pallet_rrsc::VrfSolver<AccountId, SolutionAccuracyOf<Self>, OffchainRandomBalancing>;
 	type ForceOrigin = EnsureRootOrHalfCouncil;
 	type MaxElectableTargets = ConstU16<{ u16::MAX }>;
 	type MaxElectingVoters = MaxElectingVoters;
