@@ -593,8 +593,8 @@ impl pallet_cess_staking::Config for Runtime {
 	type NextNewSession = Session;
 	type MaxNominatorRewardedPerValidator = MaxNominatorRewardedPerValidator;
 	type OffendingValidatorsThreshold = OffendingValidatorsThreshold;
-	type ElectionProvider = ElectionProviderMultiPhase;
-	type GenesisElectionProvider = onchain::UnboundedExecution<OnChainSeqPhragmen>;
+	type ElectionProvider = onchain::BoundedExecution<OnChainSeqVrf>;
+	type GenesisElectionProvider = onchain::UnboundedExecution<OnChainSeqVrf>;
 	type VoterList = BagsList;
 	type MaxUnlockingChunks = ConstU32<32>;
 	type WeightInfo = pallet_cess_staking::weights::SubstrateWeight<Runtime>;
@@ -733,17 +733,17 @@ impl Get<Option<(usize, ExtendedBalance)>> for OffchainRandomBalancing {
 	}
 }
 
-pub struct OnChainSeqPhragmen;
-impl onchain::ExecutionConfig for OnChainSeqPhragmen {
+pub struct OnChainVrf;
+impl onchain::ExecutionConfig for OnChainVrf {
 	type System = Runtime;
-	type Solver = SequentialPhragmen<
+	type Solver = pallet_rrsc::VrfSolver<
 		AccountId,
-		pallet_election_provider_multi_phase::SolutionAccuracyOf<Runtime>,
+		NposSolution16:Accuracy,
 	>;
-	type DataProvider = <Runtime as pallet_election_provider_multi_phase::Config>::DataProvider;
+	type DataProvider = Staking;
 }
 
-impl onchain::BoundedExecutionConfig for OnChainSeqPhragmen {
+impl onchain::BoundedExecutionConfig for OnChainVrf {
 	type VotersBound = ConstU32<20_000>;
 	type TargetsBound = ConstU32<2_000>;
 }

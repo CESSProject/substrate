@@ -56,6 +56,7 @@ pub use cessp_consensus_rrsc::{
 mod default_weights;
 mod equivocation;
 mod randomness;
+mod vrf_solver;
 
 #[cfg(any(feature = "runtime-benchmarks", test))]
 mod benchmarking;
@@ -68,6 +69,7 @@ pub use equivocation::{EquivocationHandler, HandleEquivocation, RRSCEquivocation
 pub use randomness::{
 	CurrentBlockRandomness, RandomnessFromOneEpochAgo, RandomnessFromTwoEpochsAgo,
 };
+pub use vrf_solver::VrfSolver;
 
 pub use pallet::*;
 
