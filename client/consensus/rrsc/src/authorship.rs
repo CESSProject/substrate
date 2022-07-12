@@ -64,13 +64,13 @@ fn claim_secondary_slot(
 	keystore: &SyncCryptoStorePtr,
 	author_secondary_vrf: bool,
 ) -> Option<(PreDigest, AuthorityId)> {
-	let Epoch { secondary_authorities, randomness, epoch_index, .. } = epoch;
+	let Epoch { authorities, randomness, epoch_index, .. } = epoch;
 
-	if secondary_authorities.is_empty() {
+	if authorities.is_empty() {
 		return None;
 	}
 
-	let expected_author = secondary_slot_author(slot, secondary_authorities, *randomness)?;
+	let expected_author = secondary_slot_author(slot, authorities, *randomness)?;
 
 	for (authority_id, authority_index) in keys {
 		if authority_id == expected_author {
@@ -122,7 +122,13 @@ pub fn claim_slot(
 	epoch: &Epoch,
 	keystore: &SyncCryptoStorePtr,
 ) -> Option<(PreDigest, AuthorityId)> {
-	claim_slot_using_keys(slot, epoch, keystore)
+	let authorities = epoch
+		.authorities
+		.iter()
+		.enumerate()
+		.map(|(index, a)| (a.0.clone(), index))
+		.collect::<Vec<_>>();
+	claim_slot_using_keys(slot, epoch, keystore, &authorities)
 }
 
 /// Like `claim_slot`, but allows passing an explicit set of key pairs. Useful if we intend
@@ -131,27 +137,16 @@ pub fn claim_slot_using_keys(
 	slot: Slot,
 	epoch: &Epoch,
 	keystore: &SyncCryptoStorePtr,
+	keys: &[(AuthorityId, usize)],
 ) -> Option<(PreDigest, AuthorityId)> {
-	let primary_authorities_keys = epoch
-		.primary_authorities
-		.iter()
-		.enumerate()
-		.map(|(index, a)| (a.0.clone(), index))
-		.collect::<Vec<_>>();
-	primary_slot_author(slot, epoch, keystore, &primary_authorities_keys).or_else(|| {
+	primary_slot_author(slot, epoch, keystore, &keys).or_else(|| {
 		if epoch.config.allowed_slots.is_secondary_plain_slots_allowed()
 			|| epoch.config.allowed_slots.is_secondary_vrf_slots_allowed()
 		{
-			let secondary_authorities_keys = epoch
-				.secondary_authorities
-				.iter()
-				.enumerate()
-				.map(|(index, a)| (a.0.clone(), index))
-				.collect::<Vec<_>>();
 			claim_secondary_slot(
 				slot,
 				&epoch,
-				&secondary_authorities_keys,
+				&keys,
 				&keystore,
 				epoch.config.allowed_slots.is_secondary_vrf_slots_allowed(),
 			)
@@ -172,13 +167,13 @@ fn primary_slot_author(
 	keys: &[(AuthorityId, usize)],
 ) -> Option<(PreDigest, AuthorityId)> {
 	let Epoch {
-		primary_authorities,
+		authorities,
 		randomness,
 		epoch_index,
 		..
 	} = epoch;
 
-	if primary_authorities.is_empty() {
+	if authorities.is_empty() {
 		return None;
 	}
 
@@ -228,23 +223,11 @@ mod tests {
 			(AuthorityId::from(Pair::generate().0.public()), 7),
 		];
 
-		let primary_authorities = vec![
-			(AuthorityId::from(Pair::generate().0.public()), 5),
-			(AuthorityId::from(Pair::generate().0.public()), 7),
-		];
-
-		let secondary_authorities = vec![
-			(AuthorityId::from(Pair::generate().0.public()), 5),
-			(AuthorityId::from(Pair::generate().0.public()), 7),
-		];
-
 		let mut epoch = Epoch {
 			epoch_index: 10,
 			start_slot: 0.into(),
 			duration: 20,
 			authorities: authorities.clone(),
-			primary_authorities: primary_authorities.clone(),
-			secondary_authorities: secondary_authorities.clone(),
 			randomness: Default::default(),
 			config: RRSCEpochConfiguration {
 				c: (3, 10),
@@ -255,8 +238,6 @@ mod tests {
 		assert!(claim_slot(10.into(), &epoch, &keystore).is_none());
 
 		epoch.authorities.push((valid_public_key.clone().into(), 10));
-		epoch.primary_authorities.push((valid_public_key.clone().into(), 10));
-		epoch.secondary_authorities.push((valid_public_key.clone().into(), 10));
 		assert_eq!(claim_slot(10.into(), &epoch, &keystore).unwrap().1, valid_public_key.into());
 	}
 }

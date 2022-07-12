@@ -451,8 +451,6 @@ parameter_types! {
 	pub const ReportLongevity: u64 =
 		BondingDuration::get() as u64 * SessionsPerEra::get() as u64 * EpochDuration::get();
 	pub const MaxAuthorities: u32 = 100;
-	pub const MaxPrimaryAuthorities: u32 = 11;
-	pub const MaxSecondaryAuthorities: u32 = 11;
 }
 
 impl pallet_rrsc::Config for Runtime {
@@ -478,8 +476,6 @@ impl pallet_rrsc::Config for Runtime {
 
 	type WeightInfo = ();
 	type MaxAuthorities = MaxAuthorities;
-	type MaxPrimaryAuthorities = MaxPrimaryAuthorities;
-	type MaxSecondaryAuthorities = MaxSecondaryAuthorities;
 }
 
 impl<C> frame_system::offchain::SendTransactionTypes<C> for Runtime
@@ -594,7 +590,7 @@ impl pallet_cess_staking::Config for Runtime {
 	type MaxNominatorRewardedPerValidator = MaxNominatorRewardedPerValidator;
 	type OffendingValidatorsThreshold = OffendingValidatorsThreshold;
 	type ElectionProvider = ElectionProviderMultiPhase;
-	type GenesisElectionProvider = onchain::UnboundedExecution<OnChainSeqVrf>;
+	type GenesisElectionProvider = onchain::UnboundedExecution<OnChainVrf>;
 	type VoterList = BagsList;
 	type MaxUnlockingChunks = ConstU32<32>;
 	type WeightInfo = pallet_cess_staking::weights::SubstrateWeight<Runtime>;
@@ -1260,8 +1256,6 @@ impl_runtime_apis! {
 				epoch_length: EpochDuration::get(),
 				c: RRSC_GENESIS_EPOCH_CONFIG.c,
 				genesis_authorities: RRSC::authorities().to_vec(),
-				genesis_primary_authorities: RRSC::primary_authorities().to_vec(),
-				genesis_secondary_authorities: RRSC::secondary_authorities().to_vec(),
 				randomness: RRSC::randomness(),
 				allowed_slots: RRSC_GENESIS_EPOCH_CONFIG.allowed_slots,
 			}

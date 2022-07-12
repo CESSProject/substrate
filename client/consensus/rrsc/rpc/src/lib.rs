@@ -132,7 +132,7 @@ where
 
 			for slot in *epoch_start..*epoch_end {
 				if let Some((claim, key)) =
-					authorship::claim_slot_using_keys(slot.into(), &epoch, &keystore/*, &keys*/)
+					authorship::claim_slot_using_keys(slot.into(), &epoch, &keystore, &keys)
 				{
 					match claim {
 						PreDigest::Primary { .. } => {

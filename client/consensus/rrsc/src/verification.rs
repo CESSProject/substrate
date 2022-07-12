@@ -151,7 +151,7 @@ fn check_primary_header<B: BlockT + Sized>(
 	epoch: &Epoch,
 	c: (u64, u64),
 ) -> Result<(), Error<B>> {
-	let author = &epoch.primary_authorities[pre_digest.authority_index as usize].0;
+	let author = &epoch.authorities[pre_digest.authority_index as usize].0;
 	
 	if AuthorityPair::verify(&signature, pre_hash, &author) {
 		Ok(())
@@ -173,10 +173,10 @@ fn check_secondary_plain_header<B: BlockT>(
 	// check the signature is valid under the expected authority and
 	// chain state.
 	let expected_author =
-		secondary_slot_author(pre_digest.slot, &epoch.secondary_authorities, epoch.randomness)
+		secondary_slot_author(pre_digest.slot, &epoch.authorities, epoch.randomness)
 			.ok_or_else(|| Error::NoSecondaryAuthorExpected)?;
 
-	let author = &epoch.secondary_authorities[pre_digest.authority_index as usize].0;
+	let author = &epoch.authorities[pre_digest.authority_index as usize].0;
 
 	if expected_author != author {
 		return Err(Error::InvalidAuthor(expected_author.clone(), author.clone()))
@@ -199,10 +199,10 @@ fn check_secondary_vrf_header<B: BlockT>(
 	// check the signature is valid under the expected authority and
 	// chain state.
 	let expected_author =
-		secondary_slot_author(pre_digest.slot, &epoch.secondary_authorities, epoch.randomness)
+		secondary_slot_author(pre_digest.slot, &epoch.authorities, epoch.randomness)
 			.ok_or_else(|| Error::NoSecondaryAuthorExpected)?;
 
-	let author = &epoch.secondary_authorities[pre_digest.authority_index as usize].0;
+	let author = &epoch.authorities[pre_digest.authority_index as usize].0;
 
 	if expected_author != author {
 		return Err(Error::InvalidAuthor(expected_author.clone(), author.clone()))

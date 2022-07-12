@@ -158,12 +158,6 @@ pub struct RRSCGenesisConfigurationV1 {
 	/// The authorities for the genesis epoch.
 	pub genesis_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
 
-	/// The primary authorities for the genesis epoch in RRSC
-	pub genesis_primary_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
-
-	/// The secondary authorities for the genesis epoch in RRSC
-	pub genesis_secondary_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>, 
-
 	/// The randomness for the genesis epoch.
 	pub randomness: Randomness,
 
@@ -179,8 +173,6 @@ impl From<RRSCGenesisConfigurationV1> for RRSCGenesisConfiguration {
 			epoch_length: v1.epoch_length,
 			c: v1.c,
 			genesis_authorities: v1.genesis_authorities,
-			genesis_primary_authorities: v1.genesis_primary_authorities,
-			genesis_secondary_authorities: v1.genesis_secondary_authorities,
 			randomness: v1.randomness,
 			allowed_slots: if v1.secondary_slots {
 				AllowedSlots::PrimaryAndSecondaryPlainSlots
@@ -213,12 +205,6 @@ pub struct RRSCGenesisConfiguration {
 
 	/// The authorities for the genesis epoch.
 	pub genesis_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
-
-	/// The primary authorities for the genesis epoch in RRSC
-	pub genesis_primary_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
-
-	/// The secondary authorities for the genesis epoch in RRSC
-	pub genesis_secondary_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
 
 	/// The randomness for the genesis epoch.
 	pub randomness: Randomness,
@@ -361,10 +347,6 @@ pub struct Epoch {
 	pub duration: u64,
 	/// The authorities and their weights.
 	pub authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
-	/// The primary authorities who participate in primary consensus
-	pub primary_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
-	/// The secondary authorities who participate in consensus in case primary fails to generate block
-	pub secondary_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
 	/// Randomness for this epoch.
 	pub randomness: [u8; VRF_OUTPUT_LENGTH],
 	/// Configuration of the epoch.
