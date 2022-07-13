@@ -1,13 +1,11 @@
-use sp_std::rc::Rc;
-use core::cell::RefCell;
-use frame_election_provider_support::NposSolver;
+use frame_election_provider_support::{Assignment, NposSolver};
 use frame_support::traits::Get;
 use sp_std::prelude::*;
 use sp_npos_elections::{
-	ElectionResult, ExtendedBalance, IdentifierT, PerThing128, VoteWeight, Candidate,
+	ElectionResult, ExtendedBalance, IdentifierT, PerThing128, VoteWeight,
 };
 use frame_support::traits::Randomness;
-use super::randomness::CurrentBlockRandomness;
+use super::{Config, CurrentBlockRandomness};
 use codec::alloc::string::ToString;
 
 /// A wrapper for [`sp_npos_elections::seq_phragmen`] that implements [`NposSolver`].
@@ -18,7 +16,7 @@ pub struct VrfSolver<AccountId, Accuracy, T, Balancing = ()>(
 impl<
 		AccountId: IdentifierT,
 		Accuracy: PerThing128,
-		T: super::pallet::Config,
+		T: Config,
 		Balancing: Get<Option<(usize, ExtendedBalance)>>,
 	> NposSolver for VrfSolver<AccountId, Accuracy, T, Balancing>
 {
@@ -30,24 +28,28 @@ impl<
 		targets: Vec<Self::AccountId>,
 		voters: Vec<(Self::AccountId, VoteWeight, impl IntoIterator<Item = Self::AccountId>)>,
 	) -> Result<ElectionResult<Self::AccountId, Self::Accuracy>, Self::Error> {
-		let (candidates, _) = sp_npos_elections::setup_inputs(targets, voters);
-
-		let max_authorities = <T as super::Config>::MaxAuthorities::get() as usize;
-		let mut account_index_hash: Vec<(usize, &Rc<RefCell<Candidate<Self::AccountId>>>, T::Hash)> = vec![];
-
-		for (account_index, account_id) in candidates.iter().enumerate() {
+		let to_elect = winners;
+		
+		let mut account_index_hash = vec![];
+		for (account_index, account_id) in targets.into_iter().enumerate() {
 			let hash = Self::random_hash("authorities", &account_index);
-			account_index_hash.push((account_index, &account_id, hash));
+			account_index_hash.push((account_id, hash));
 		}
 
-		account_index_hash.sort_by_key(|h| h.2);
-		let mut winner_accounts = account_index_hash[0..max_authorities]
-			.iter()
-			.enumerate()
-			.map(|(_, a)| a.1.clone())
-			.collect::<Vec<_>>();
+		account_index_hash.sort_by_key(|h| h.1);
 
-		todo!()
+		let winners: Vec<(AccountId, u128)> = account_index_hash
+			.into_iter()
+			.take(to_elect)
+			.map(|h| (h.0, 100))
+			.collect();
+		let assignments = winners
+			.clone()
+			.into_iter()
+			.map(|h| Assignment { who: h.0.clone(), distribution: vec![(h.0, Accuracy::from_percent(100.into()))] })
+			.collect();
+
+		Ok(ElectionResult { winners, assignments })
 	}
 
 	/* Delete after completing fn solve()
@@ -100,7 +102,7 @@ impl<
 impl <
 AccountId: IdentifierT,
 Accuracy: PerThing128,
-T: super::Config,
+T: Config,
 Balancing: Get<Option<(usize, ExtendedBalance)>>,
 > VrfSolver<AccountId, Accuracy, T, Balancing> {
 	pub fn random_hash(context: &str,authority_index: &usize) -> T::Hash {
