@@ -52,51 +52,6 @@ impl<
 		Ok(ElectionResult { winners, assignments })
 	}
 
-	/* Delete after completing fn solve()
-	// Calling code
-	sp_npos_elections::seq_phragmen(winners, targets, voters, Balancing::get())
-
-	// function
-	pub fn seq_phragmen<AccountId: IdentifierT, P: PerThing128>(
-		to_elect: usize,
-		candidates: Vec<AccountId>,
-		voters: Vec<(AccountId, VoteWeight, impl IntoIterator<Item = AccountId>)>,
-		balancing: Option<(usize, ExtendedBalance)>,
-	) -> Result<ElectionResult<AccountId, P>, crate::Error> {
-		let (candidates, voters) = setup_inputs(candidates, voters);
-	
-		let (candidates, mut voters) = seq_phragmen_core::<AccountId>(to_elect, candidates, voters)?;
-	
-		if let Some((iterations, tolerance)) = balancing {
-			// NOTE: might create zero-edges, but we will strip them again when we convert voter into
-			// assignment.
-			let _iters = balancing::balance::<AccountId>(&mut voters, iterations, tolerance);
-		}
-	
-		let mut winners = candidates
-			.into_iter()
-			.filter(|c_ptr| c_ptr.borrow().elected)
-			// defensive only: seq-phragmen-core returns only up to rounds.
-			.take(to_elect)
-			.collect::<Vec<_>>();
-	
-		// sort winners based on desirability.
-		winners.sort_by_key(|c_ptr| c_ptr.borrow().round);
-	
-		let mut assignments =
-			voters.into_iter().filter_map(|v| v.into_assignment()).collect::<Vec<_>>();
-		let _ = assignments
-			.iter_mut()
-			.map(|a| a.try_normalize().map_err(|e| crate::Error::ArithmeticError(e)))
-			.collect::<Result<(), _>>()?;
-		let winners = winners
-			.into_iter()
-			.map(|w_ptr| (w_ptr.borrow().who.clone(), w_ptr.borrow().backed_stake))
-			.collect();
-	
-		Ok(ElectionResult { winners, assignments })
-	}
-	*/
 }
 
 impl <
@@ -109,12 +64,10 @@ Balancing: Get<Option<(usize, ExtendedBalance)>>,
 		let mut b_context = context.to_string();
 		b_context.push_str(authority_index.to_string().as_str());
 		let (hash, _) = CurrentBlockRandomness::<T>::random(&b_context.as_bytes());
-		log::info!("{:?} Before Hash:: {:?}", b_context, hash);
 		let hash = 	match hash {
 				Some(h) => h,
 				None => T::Hash::default(),
 		};
-		log::info!("{:?} Hash:: {:?}", b_context, hash);
 		hash
 	}
 }
