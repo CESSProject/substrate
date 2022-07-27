@@ -137,7 +137,7 @@ pub mod pallet {
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		/// Event generated when new price is accepted to contribute to the average.
+		/// Event generated when new vrf_inout submitted
 		NewInOutVrf { vrf_inout: u32, maybe_who: Option<T::AccountId> },
 	}
 
@@ -193,7 +193,6 @@ pub mod pallet {
 			}
 	
 			ValidTransaction::with_tag_prefix("OffchainWorker-rrsc-vrf-inout")
-				//.priority(T::UnsignedPriority::get().saturating_add(avg_price as _))
 				.and_provides(next_unsigned_at)
 				.longevity(5)
 				.propagate(true)
