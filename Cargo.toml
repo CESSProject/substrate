@@ -115,6 +115,7 @@ members = [
 	"frame/recovery",
 	"frame/referenda",
 	"frame/rrsc",
+	"frame/rrsc-vrf",
 	"frame/scheduler",
 	"frame/scored-pool",
 	"frame/session",

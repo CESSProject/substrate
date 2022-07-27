@@ -296,6 +296,12 @@ pub fn new_full_base(
 			cess_node_template_runtime::pallet_file_bank::KEY_TYPE,
 			Some("//Alice"),
 		).expect("Creating key with account Alice should succeed.");
+
+		sp_keystore::SyncCryptoStore::sr25519_generate_new(
+			&*keystore,
+			pallet_rrsc_vrf::crypto::KEY_TYPE,
+			Some("//Alice"),
+		).expect("Creating key with account Alice should succeed.");
 	}
 
 	let role = config.role.clone();

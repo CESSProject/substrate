@@ -1094,10 +1094,18 @@ impl_opaque_keys! {
 		pub authority_discovery: AuthorityDiscovery,
 	}
 }
-// /// Configure the pallet-template in pallets/template.
-// impl pallet_template::Config for Runtime {
-// 	type Event = Event;
-// }
+
+parameter_types! {
+	pub const UnsignedInterval: BlockNumber = 5;
+}
+
+impl pallet_rrsc_vrf::Config for Runtime {
+	type AuthorityId = pallet_rrsc_vrf::crypto::AuthorityId;
+	type Event = Event;
+	type Call = Call;
+	type VrfInOut = ConstU32<32>;
+	type UnsignedInterval = UnsignedInterval;
+}
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
@@ -1140,6 +1148,7 @@ construct_runtime!(
 		Assets: pallet_assets,
 		Mmr: pallet_mmr,
 		Indices: pallet_indices,
+		RRSCVrf: pallet_rrsc_vrf,
 	}
 );
 
