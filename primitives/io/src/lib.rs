@@ -788,6 +788,24 @@ pub trait Crypto {
 		sr25519::Pair::verify_deprecated(sig, msg, pubkey)
 	}
 
+	fn sr25519_vrf_sign(
+		&mut self,
+		id: KeyTypeId,
+		pub_key: &sr25519::Public,
+	) -> Option<([u8; 32], [u8; 64])> {
+		let keystore = &***self
+			.extension::<KeystoreExt>()
+			.expect("No `keystore` associated for the current context!");
+		let transcript_data = VRFTranscriptData {
+			label: b"rrsc",
+			items: vec![],
+		};
+		SyncCryptoStore::sr25519_vrf_sign(keystore, id, pub_key, transcript_data)
+			.ok()
+			.flatten()
+			.map(|sig| (sig.output.to_bytes(), sig.proof.to_bytes()))
+	}
+
 	/// Returns all `ecdsa` public keys for the given key id from the keystore.
 	fn ecdsa_public_keys(&mut self, id: KeyTypeId) -> Vec<ecdsa::Public> {
 		let keystore = &***self

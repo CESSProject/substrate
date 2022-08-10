@@ -6690,16 +6690,19 @@ dependencies = [
 name = "pallet-rrsc-vrf"
 version = "0.1.0"
 dependencies = [
+ "cessp-consensus-rrsc",
  "frame-support",
  "frame-system",
- "lite-json",
  "log 0.4.14",
+ "pallet-authorship",
+ "pallet-session",
  "parity-scale-codec",
  "scale-info",
+ "sp-application-crypto",
  "sp-core",
  "sp-io",
- "sp-keystore",
  "sp-runtime",
+ "sp-staking",
  "sp-std",
 ]
 
