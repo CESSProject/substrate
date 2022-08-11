@@ -315,8 +315,8 @@ pub mod pallet {
 				};
 
 				// check signature (this is expensive so we do it last).
-				let signature_valid = heartbeat.using_encoded(|encoded_heartbeat| {
-					authority_id.verify(&encoded_heartbeat, &signature)
+				let signature_valid = vrf_inout.using_encoded(|encoded_vrf_inout| {
+					authority_id.verify(&encoded_vrf_inout, &signature)
 				});
 
 				if !signature_valid {
