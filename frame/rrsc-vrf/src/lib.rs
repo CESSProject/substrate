@@ -288,12 +288,55 @@ pub mod pallet {
 		}
 	}
 
+	/// Invalid transaction custom error. Returned when validators_len field in heartbeat is
+	/// incorrect.
+	pub(crate) const INVALID_VALIDATORS_LEN: u8 = 10;
+
 	#[pallet::validate_unsigned]
 	impl<T: Config> ValidateUnsigned for Pallet<T> {
 		type Call = Call<T>;
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-			todo!();
+			if let Call::submit_vrf_inout{ vrf_inout, signature } = call {
+				// check if session index from heartbeat is recent
+				let current_session = T::ValidatorSet::session_index();
+				if vrf_inout.session_index != current_session {
+					return InvalidTransaction::Stale.into()
+				}
+
+				// verify that the incoming (unverified) pubkey is actually an authority id
+				let keys = Keys::<T>::get();
+				if keys.len() as u32 != vrf_inout.validators_len {
+					return InvalidTransaction::Custom(INVALID_VALIDATORS_LEN).into()
+				}
+				let authority_id = match keys.get(vrf_inout.authority_index as usize) {
+					Some(id) => id,
+					None => return InvalidTransaction::BadProof.into(),
+				};
+
+				// check signature (this is expensive so we do it last).
+				let signature_valid = heartbeat.using_encoded(|encoded_heartbeat| {
+					authority_id.verify(&encoded_heartbeat, &signature)
+				});
+
+				if !signature_valid {
+					return InvalidTransaction::BadProof.into()
+				}
+
+				ValidTransaction::with_tag_prefix("ImOnline")
+					.priority(T::UnsignedPriority::get())
+					.and_provides((current_session, authority_id))
+					.longevity(
+						TryInto::<u64>::try_into(
+							T::NextSessionRotation::average_session_length() / 2u32.into(),
+						)
+						.unwrap_or(64_u64),
+					)
+					.propagate(true)
+					.build()
+			} else {
+				InvalidTransaction::Call.into()
+			}
 		}
 	}
 }
@@ -387,7 +430,7 @@ impl<T: Config> Pallet<T> {
 		let prepare_vrf_inout = || -> OffchainResult<T, Call<T>> {
 			let keys = Keys::<T>::get();
 			let public = keys.get(authority_index as usize).unwrap();
-			let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, T::AuthorityId);
+			let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, public);
 
 			let vrf_inout = VrfInOut {
 				block_number,
