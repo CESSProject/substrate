@@ -299,7 +299,7 @@ pub fn new_full_base(
 
 		sp_keystore::SyncCryptoStore::sr25519_generate_new(
 			&*keystore,
-			pallet_rrsc_vrf::crypto::KEY_TYPE,
+			sp_application_crypto::key_types::RRSC,
 			Some("//Alice"),
 		).expect("Creating key with account Alice should succeed.");
 	}

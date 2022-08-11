@@ -935,6 +935,7 @@ dependencies = [
  "sc-transaction-pool-api",
  "serde",
  "sp-api",
+ "sp-application-crypto",
  "sp-authority-discovery",
  "sp-authorship",
  "sp-block-builder",

@@ -259,7 +259,7 @@ pub mod pallet {
 				ReceivedVrfInOut::<T>::insert(
 					&current_session,
 					&vrf_inout.authority_index,
-					WrapperOpaque::from(vrf_inout),
+					WrapperOpaque::from(vrf_inout.clone()),
 				);
 
 				Ok(())
@@ -274,9 +274,10 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn offchain_worker(block_number: BlockNumberFor<T>) {
+			log::info!("Offchain worker called for vrf transaction!");
 			let session_index = T::ValidatorSet::session_index();
 			let validators_len = Keys::<T>::decode_len().unwrap_or_default() as u32;
-			Self::local_authority_keys().map(move |(authority_index, key)| {
+			let _result = Self::local_authority_keys().map(move |(authority_index, key)| {
 				Self::send_vrf_inout(
 					authority_index,
 					key,
@@ -430,8 +431,8 @@ impl<T: Config> Pallet<T> {
 		let prepare_vrf_inout = || -> OffchainResult<T, Call<T>> {
 			let keys = Keys::<T>::get();
 			let public = keys.get(authority_index as usize).unwrap();
-			let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, public);
-
+			//let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, public);
+			let vrf_inout_sign = Some(([32u8; 32], [64u8; 64]));
 			let vrf_inout = VrfInOut {
 				block_number,
 				session_index,
@@ -458,6 +459,7 @@ impl<T: Config> Pallet<T> {
 				call,
 			);
 
+			log::info!("Submitting vrf transaction!");
 			SubmitTransaction::<T, Call<T>>::submit_unsigned_transaction(call.into())
 				.map_err(|_| OffchainErr::SubmitTransaction)?;
 

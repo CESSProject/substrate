@@ -1096,15 +1096,17 @@ impl_opaque_keys! {
 }
 
 parameter_types! {
-	pub const UnsignedInterval: BlockNumber = 5;
+	pub const RRSCVrfUnsignedPriority: TransactionPriority = TransactionPriority::max_value();
 }
 
 impl pallet_rrsc_vrf::Config for Runtime {
-	type AuthorityId = pallet_rrsc_vrf::crypto::AuthorityId;
+	type AuthorityId = pallet_rrsc_vrf::sr25519::AuthorityId;
+	type MaxKeys = MaxKeys;
 	type Event = Event;
-	type Call = Call;
-	type VrfInOut = ConstU32<32>;
-	type UnsignedInterval = UnsignedInterval;
+	type ValidatorSet = Historical;
+	type NextSessionRotation = RRSC;
+	type UnsignedPriority = RRSCVrfUnsignedPriority;
+	
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
