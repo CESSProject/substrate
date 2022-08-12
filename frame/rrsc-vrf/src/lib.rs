@@ -13,7 +13,6 @@ use frame_support::{
 use frame_system::offchain::{SendTransactionTypes, SubmitTransaction};
 use scale_info::TypeInfo;
 use sp_application_crypto::RuntimeAppPublic;
-use sp_core::offchain::OpaqueNetworkState;
 use sp_runtime::{
 	offchain::storage::{MutateStorageError, StorageRetrievalError, StorageValueRef},
 	traits::{AtLeast32BitUnsigned, Convert, Saturating, TrailingZeroInput},
@@ -39,8 +38,8 @@ pub mod sr25519 {
 	/// A signature using sr25519 as its crypto.
 	pub type AuthoritySignature = app_sr25519::Signature;
 
-	/// An identifier using sr25519 as its crypto.
-	pub type AuthorityId = app_sr25519::Public;
+	// An identifier using sr25519 as its crypto.
+	//pub type AuthorityId = cessp_consensus_rrsc::AuthorityId;
 }
 
 const DB_PREFIX: &[u8] = b"cess/vrf-inout/";
@@ -186,7 +185,7 @@ pub mod pallet {
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		/// A new vrf inout was received from `AuthorityId`.
-		VrfInOutReceived { authority_id: T::AuthorityId },
+		VrfInOutReceived { authority_id: cessp_consensus_rrsc::AuthorityId },
 		/// At the end of the session, no offence was committed.
 		AllGood,
 	}
@@ -207,7 +206,7 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn keys)]
 	pub(crate) type Keys<T: Config> =
-		StorageValue<_, WeakBoundedVec<T::AuthorityId, T::MaxKeys>, ValueQuery>;
+		StorageValue<_, WeakBoundedVec<cessp_consensus_rrsc::AuthorityId, T::MaxKeys>, ValueQuery>;
 
 	/// For each session index, we keep a mapping of `SessionIndex` and `AuthIndex` to
 	/// `WrapperOpaque<BoundedOpaqueNetworkState>`.
@@ -244,7 +243,7 @@ pub mod pallet {
 		pub fn submit_vrf_inout(
 			origin: OriginFor<T>, 
 			vrf_inout: VrfInOut<T::BlockNumber>,
-			_signature: <T::AuthorityId as RuntimeAppPublic>::Signature,
+			_signature: <cessp_consensus_rrsc::AuthorityId as RuntimeAppPublic>::Signature,
 		) -> DispatchResult{
 			ensure_none(origin)?;
 
@@ -274,10 +273,9 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn offchain_worker(block_number: BlockNumberFor<T>) {
-			log::info!("Offchain worker called for vrf transaction!");
 			let session_index = T::ValidatorSet::session_index();
 			let validators_len = Keys::<T>::decode_len().unwrap_or_default() as u32;
-			let _result = Self::local_authority_keys().map(move |(authority_index, key)| {
+			let result = Self::local_authority_keys().map(move |(authority_index, key)| {
 				Self::send_vrf_inout(
 					authority_index,
 					key,
@@ -286,6 +284,8 @@ pub mod pallet {
 					validators_len,
 				)
 			});
+
+			//for _ in result.into_iter().flatten() { }
 		}
 	}
 
@@ -344,7 +344,7 @@ pub mod pallet {
 
 impl<T: Config> Pallet<T> {
 
-	fn local_authority_keys() -> impl Iterator<Item = (u32, T::AuthorityId)> {
+	fn local_authority_keys() -> impl Iterator<Item = (u32, cessp_consensus_rrsc::AuthorityId)> {
 		// on-chain storage
 		//
 		// At index `idx`:
@@ -355,7 +355,7 @@ impl<T: Config> Pallet<T> {
 		// local keystore
 		//
 		// All `ImOnline` public (+private) keys currently in the local keystore.
-		let mut local_keys = T::AuthorityId::all();
+		let mut local_keys = cessp_consensus_rrsc::AuthorityId::all();
 
 		local_keys.sort();
 
@@ -412,7 +412,7 @@ impl<T: Config> Pallet<T> {
 		res
 	}
 
-	fn initialize_keys(keys: &[T::AuthorityId]) {
+	fn initialize_keys(keys: &[cessp_consensus_rrsc::AuthorityId]) {
 		if !keys.is_empty() {
 			assert!(Keys::<T>::get().is_empty(), "Keys are already initialized!");
 			let bounded_keys = <BoundedSlice<'_, _, T::MaxKeys>>::try_from(keys)
@@ -423,16 +423,16 @@ impl<T: Config> Pallet<T> {
 
 	fn send_vrf_inout(
 		authority_index: u32,
-		key: T::AuthorityId,
+		key: cessp_consensus_rrsc::AuthorityId,
 		session_index: SessionIndex,
 		block_number: T::BlockNumber,
 		validators_len: u32,
 	) -> OffchainResult<T, ()> {
+		log::info!("send_vrf_inout!");
 		let prepare_vrf_inout = || -> OffchainResult<T, Call<T>> {
 			let keys = Keys::<T>::get();
 			let public = keys.get(authority_index as usize).unwrap();
-			//let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, public);
-			let vrf_inout_sign = Some(([32u8; 32], [64u8; 64]));
+			let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, public.as_ref());
 			let vrf_inout = VrfInOut {
 				block_number,
 				session_index,
@@ -469,15 +469,15 @@ impl<T: Config> Pallet<T> {
 }
 
 impl<T: Config> sp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
-	type Public = T::AuthorityId;
+	type Public = cessp_consensus_rrsc::AuthorityId;
 }
 
 impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
-	type Key = T::AuthorityId;
+	type Key = cessp_consensus_rrsc::AuthorityId;
 
 	fn on_genesis_session<'a, I: 'a>(validators: I)
 	where
-		I: Iterator<Item = (&'a T::AccountId, T::AuthorityId)>,
+		I: Iterator<Item = (&'a T::AccountId, cessp_consensus_rrsc::AuthorityId)>,
 	{
 		let keys = validators.map(|x| x.1).collect::<Vec<_>>();
 		Self::initialize_keys(&keys);
@@ -485,7 +485,7 @@ impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 
 	fn on_new_session<'a, I: 'a>(_changed: bool, validators: I, _queued_validators: I)
 	where
-		I: Iterator<Item = (&'a T::AccountId, T::AuthorityId)>,
+		I: Iterator<Item = (&'a T::AccountId, cessp_consensus_rrsc::AuthorityId)>,
 	{
 		// Tell the offchain worker to start making the next session's heartbeats.
 		// Since we consider producing blocks as being online,

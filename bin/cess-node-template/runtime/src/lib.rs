@@ -1100,7 +1100,7 @@ parameter_types! {
 }
 
 impl pallet_rrsc_vrf::Config for Runtime {
-	type AuthorityId = pallet_rrsc_vrf::sr25519::AuthorityId;
+	type AuthorityId = cessp_consensus_rrsc::AuthorityId;
 	type MaxKeys = MaxKeys;
 	type Event = Event;
 	type ValidatorSet = Historical;
