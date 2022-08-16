@@ -13,6 +13,7 @@ use frame_support::{
 use frame_system::offchain::{SendTransactionTypes, SubmitTransaction};
 use scale_info::TypeInfo;
 use sp_application_crypto::RuntimeAppPublic;
+use sp_core::{ByteArray, Pair};
 use sp_runtime::{
 	offchain::storage::{MutateStorageError, StorageRetrievalError, StorageValueRef},
 	traits::{AtLeast32BitUnsigned, Convert, Saturating, TrailingZeroInput},
@@ -129,7 +130,7 @@ where
 	/// The length of session validator set
 	pub validators_len: u32,
 	/// The vrf inout
-	pub vrf_inout: Option<([u8; 32], [u8; 64])>,
+	pub vrf_inout: ([u8; 32], [u8; 64]),
 }
 
 type OffchainResult<T, A> = Result<A, OffchainErr<<T as frame_system::Config>::BlockNumber>>;
@@ -315,6 +316,20 @@ pub mod pallet {
 					None => return InvalidTransaction::BadProof.into(),
 				};
 
+				let (inout, _) = {
+					let mut transcript = merlin::Transcript::new(b"RRSC");
+					transcript.append_u64(b"current epoch", 10);
+					transcript.append_message(b"chain randomness", &vec![]);
+					schnorrkel::PublicKey::from_bytes(authority_id.as_slice())
+						.and_then(|p| {
+							let (output, proof) = vrf_inout.vrf_inout;
+							p.vrf_verify(transcript, &schnorrkel::vrf::VRFOutput::from_bytes(&output)?, &schnorrkel::vrf::VRFProof::from_bytes(&proof)?)
+						})
+						.map_err(|s| InvalidTransaction::BadProof)?
+				};
+				let vrf_random = u128::from_le_bytes(inout.make_bytes::<[u8; 16]>(cessp_consensus_rrsc::RRSC_VRF_PREFIX));
+				// TODO: store vrf_random onchain
+
 				// check signature (this is expensive so we do it last).
 				let signature_valid = vrf_inout.using_encoded(|encoded_vrf_inout| {
 					authority_id.verify(&encoded_vrf_inout, &signature)
@@ -432,7 +447,8 @@ impl<T: Config> Pallet<T> {
 		let prepare_vrf_inout = || -> OffchainResult<T, Call<T>> {
 			let keys = Keys::<T>::get();
 			let public = keys.get(authority_index as usize).unwrap();
-			let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, public.as_ref());
+			let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, key.as_ref(), vec![], 10)
+																		.ok_or(OffchainErr::FailedSigning)?;
 			let vrf_inout = VrfInOut {
 				block_number,
 				session_index,
