@@ -6,14 +6,14 @@ use cessp_consensus_rrsc::AuthorityId;
 use frame_support::{
 	traits::{
 		EstimateNextSessionRotation, Get, OneSessionHandler, ValidatorSet,
-		ValidatorSetWithIdentification, WrapperOpaque,
+		ValidatorSetWithIdentification, WrapperOpaque, Randomness
 	},
 	BoundedSlice, WeakBoundedVec,
 };
 use frame_system::offchain::{SendTransactionTypes, SubmitTransaction};
 use scale_info::TypeInfo;
 use sp_application_crypto::RuntimeAppPublic;
-use sp_core::{ByteArray, Pair};
+use sp_core::crypto::ByteArray;
 use sp_runtime::{
 	offchain::storage::{MutateStorageError, StorageRetrievalError, StorageValueRef},
 	traits::{AtLeast32BitUnsigned, Convert, Saturating, TrailingZeroInput},
@@ -24,6 +24,7 @@ use sp_staking::{
 	SessionIndex,
 };
 use sp_std::{convert::TryInto, prelude::*};
+use core::marker::PhantomData;
 
 pub mod sr25519 {
 	mod app_sr25519 {
@@ -40,7 +41,7 @@ pub mod sr25519 {
 	pub type AuthoritySignature = app_sr25519::Signature;
 
 	// An identifier using sr25519 as its crypto.
-	//pub type AuthorityId = cessp_consensus_rrsc::AuthorityId;
+	pub type AuthorityId = cessp_consensus_rrsc::AuthorityId;
 }
 
 const DB_PREFIX: &[u8] = b"cess/vrf-inout/";
@@ -147,13 +148,13 @@ pub mod pallet {
 
 	#[pallet::config]
 	pub trait Config: SendTransactionTypes<Call<Self>> + frame_system::Config {
-		/// The identifier type for an authority.
-		type AuthorityId: Member
-			+ Parameter
-			+ RuntimeAppPublic
-			+ Ord
-			+ MaybeSerializeDeserialize
-			+ MaxEncodedLen;
+		// The identifier type for an authority.
+		// type AuthorityId: Member
+		// 	+ Parameter
+		// 	+ RuntimeAppPublic
+		// 	+ Ord
+		// 	+ MaybeSerializeDeserialize
+		// 	+ MaxEncodedLen;
 
 		/// The maximum number of keys that can be added.
 		type MaxKeys: Get<u32>;
@@ -179,6 +180,9 @@ pub mod pallet {
 		/// multiple pallets send unsigned transactions.
 		#[pallet::constant]
 		type UnsignedPriority: Get<TransactionPriority>;
+
+		/// Something that provides randomness in the runtime.
+		type Randomness: Randomness<Self::Hash, Self::BlockNumber>;
 
 	}
 
@@ -238,6 +242,26 @@ pub mod pallet {
 		>>::Identification,
 	);
 
+	#[pallet::genesis_config]
+	pub struct GenesisConfig<T: Config> {
+		pub keys: Vec<cessp_consensus_rrsc::AuthorityId>,
+		pub phantom_data: PhantomData<T>,
+	}
+
+	#[cfg(feature = "std")]
+	impl<T: Config> Default for GenesisConfig<T> {
+		fn default() -> Self {
+			GenesisConfig { keys: Default::default(), phantom_data: Default::default() }
+		}
+	}
+
+	#[pallet::genesis_build]
+	impl<T: Config> GenesisBuild<T> for GenesisConfig<T> {
+		fn build(&self) {
+			Pallet::<T>::initialize_keys(&self.keys);
+		}
+	}
+
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
 		#[pallet::weight(0)]
@@ -276,7 +300,8 @@ pub mod pallet {
 		fn offchain_worker(block_number: BlockNumberFor<T>) {
 			let session_index = T::ValidatorSet::session_index();
 			let validators_len = Keys::<T>::decode_len().unwrap_or_default() as u32;
-			let result = Self::local_authority_keys().map(move |(authority_index, key)| {
+			let _result: OffchainResult<T, ()> = Self::local_authority_keys().map(move |(authority_index, key)| {
+				log::info!("local_authority_keys");
 				Self::send_vrf_inout(
 					authority_index,
 					key,
@@ -284,9 +309,7 @@ pub mod pallet {
 					block_number,
 					validators_len,
 				)
-			});
-
-			//for _ in result.into_iter().flatten() { }
+			}).collect::<_>();
 		}
 	}
 

@@ -1100,12 +1100,13 @@ parameter_types! {
 }
 
 impl pallet_rrsc_vrf::Config for Runtime {
-	type AuthorityId = cessp_consensus_rrsc::AuthorityId;
+	// type AuthorityId = cessp_consensus_rrsc::AuthorityId;
 	type MaxKeys = MaxKeys;
 	type Event = Event;
 	type ValidatorSet = Historical;
 	type NextSessionRotation = RRSC;
 	type UnsignedPriority = RRSCVrfUnsignedPriority;
+	type Randomness = RandomnessCollectiveFlip;
 	
 }
 

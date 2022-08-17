@@ -1,7 +1,7 @@
 use cess_node_template_runtime::{
 	wasm_binary_unwrap, AccountId, AuthorityDiscoveryConfig, Balance, BalancesConfig, Block,
 	CouncilConfig, GenesisConfig, GrandpaConfig, ImOnlineConfig, IndicesConfig, MaxNominations,
-	RRSCConfig, SessionConfig, SessionKeys, Signature, StakerStatus, StakingConfig, SudoConfig,
+	RRSCConfig, RRSCVrfConfig, SessionConfig, SessionKeys, Signature, StakerStatus, StakingConfig, SudoConfig,
 	SystemConfig, TechnicalCommitteeConfig, DOLLARS,
 };
 use cessp_consensus_rrsc::AuthorityId as RRSCId;
@@ -363,6 +363,10 @@ fn testnet_genesis(
 		rrsc: RRSCConfig {
 			authorities: vec![],
 			epoch_config: Some(cess_node_template_runtime::RRSC_GENESIS_EPOCH_CONFIG),
+		},
+		rrsc_vrf: RRSCVrfConfig {
+			keys: vec![],
+			phantom_data: Default::default(),
 		},
 		im_online: ImOnlineConfig { keys: vec![] },
 		authority_discovery: AuthorityDiscoveryConfig { keys: vec![] },
