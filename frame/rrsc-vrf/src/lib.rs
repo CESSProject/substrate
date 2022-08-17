@@ -470,7 +470,7 @@ impl<T: Config> Pallet<T> {
 		let prepare_vrf_inout = || -> OffchainResult<T, Call<T>> {
 			let keys = Keys::<T>::get();
 			let public = keys.get(authority_index as usize).unwrap();
-			let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, key.as_ref(), vec![], 10)
+			let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, key.as_ref(), public.as_slice().to_vec(), 10)
 																		.ok_or(OffchainErr::FailedSigning)?;
 			let vrf_inout = VrfInOut {
 				block_number,
