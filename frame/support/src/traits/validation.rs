@@ -21,7 +21,7 @@ use crate::{dispatch::Parameter, weights::Weight};
 use codec::{Codec, Decode, MaxEncodedLen};
 use sp_runtime::{
 	traits::{Convert, Zero},
-	BoundToRuntimeAppPublic, ConsensusEngineId, Permill, RuntimeAppPublic,
+	BoundToRuntimeAppPublic, ConsensusEngineId, KeyTypeId, Permill, RuntimeAppPublic,
 };
 use sp_staking::SessionIndex;
 use sp_std::prelude::*;
@@ -244,6 +244,13 @@ pub trait ValidatorRegistration<ValidatorId> {
 	/// Returns true if the provided validator ID has been registered with the implementing runtime
 	/// module
 	fn is_registered(id: &ValidatorId) -> bool;
+}
+
+/// Trait used to get the validator ID by KeyTypeId and key_data. 
+/// The [Session module](../../pallet_session/index.html) is an implementor.
+pub trait FindKeyOwner<ValidatorId> {
+	/// Returns the validator ID
+	fn key_owner(id: KeyTypeId, key_data: &[u8]) -> Option<ValidatorId>;
 }
 
 /// Trait used to check whether a given validator is currently disabled and should not be

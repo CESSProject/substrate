@@ -120,7 +120,7 @@ use frame_support::{
 	dispatch::{DispatchError, DispatchResult},
 	ensure,
 	traits::{
-		EstimateNextNewSession, EstimateNextSessionRotation, FindAuthor, Get, OneSessionHandler,
+		EstimateNextNewSession, EstimateNextSessionRotation, FindAuthor, FindKeyOwner, Get, OneSessionHandler,
 		StorageVersion, ValidatorRegistration, ValidatorSet,
 	},
 	weights::Weight,
@@ -904,6 +904,12 @@ impl<T: Config> Pallet<T> {
 impl<T: Config> ValidatorRegistration<T::ValidatorId> for Pallet<T> {
 	fn is_registered(id: &T::ValidatorId) -> bool {
 		Self::load_keys(id).is_some()
+	}
+}
+
+impl<T: Config> FindKeyOwner<T::ValidatorId> for Pallet<T> {
+	fn key_owner(id: KeyTypeId, key_data: &[u8]) -> Option<T::ValidatorId> {
+		Self::key_owner(id, key_data)
 	}
 }
 
