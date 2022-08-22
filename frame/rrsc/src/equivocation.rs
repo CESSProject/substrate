@@ -186,6 +186,7 @@ where
 /// unsigned equivocation reports.
 impl<T: Config> Pallet<T> {
 	pub fn validate_unsigned(source: TransactionSource, call: &Call<T>) -> TransactionValidity {
+		log::info!("Source: {:?}", source);
 		if let Call::report_equivocation_unsigned { equivocation_proof, key_owner_proof } = call {
 			// discard equivocation report not coming from the local node
 			match source {
@@ -214,6 +215,12 @@ impl<T: Config> Pallet<T> {
 				.longevity(longevity)
 				// We don't propagate this. This can never be included on a remote node.
 				.propagate(false)
+				.build()
+		} else if let Call::submit_vrf_inout{ } = call {
+			log::info!("else if let Call::submit_vrf_inout = call");
+			ValidTransaction::with_tag_prefix("RRSCVrf")
+				.priority(TransactionPriority::max_value())
+				.propagate(true)
 				.build()
 		} else {
 			InvalidTransaction::Call.into()

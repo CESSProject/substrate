@@ -69,7 +69,7 @@ pallet-file-map =  { version = "0.1.0", default-features = false, path = "../../
 pallet-sminer = { version = "0.1.0", default-features = false, path = "../../c-pallets/sminer" }
 frame-election-provider-support = { version = "4.0.0-dev", default-features = false, path = "../../../frame/election-provider-support" }
 pallet-asset-tx-payment = { version = "4.0.0-dev", path = "../../../frame/transaction-payment/asset-tx-payment/", default-features = false }
-pallet-rrsc-vrf = { version = "0.1.0", default-features = false, path = "../../../frame/rrsc-vrf"}
+# pallet-rrsc-vrf = { version = "0.1.0", default-features = false, path = "../../../frame/rrsc-vrf"}
 
 
 # Used for the node template's RPCs

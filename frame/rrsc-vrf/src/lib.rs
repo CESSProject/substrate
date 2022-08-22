@@ -466,7 +466,6 @@ impl<T: Config> Pallet<T> {
 		block_number: T::BlockNumber,
 		validators_len: u32,
 	) -> OffchainResult<T, ()> {
-		log::info!("send_vrf_inout!");
 		let prepare_vrf_inout = || -> OffchainResult<T, Call<T>> {
 			let keys = Keys::<T>::get();
 			let public = keys.get(authority_index as usize).unwrap();

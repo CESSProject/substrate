@@ -21,23 +21,34 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![warn(unused_must_use, unsafe_code, unused_variables, unused_must_use)]
 
-use codec::{Decode, Encode};
+use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::{
 	dispatch::DispatchResultWithPostInfo,
 	traits::{
 		ConstU32, DisabledValidators, FindAuthor, Get, KeyOwnerProofSystem, OnTimestampSet,
-		OneSessionHandler, Randomness as RandomnessT,
+		OneSessionHandler, ValidatorSet, ValidatorSetWithIdentification, WrapperOpaque,  Randomness as RandomnessT,
 	},
 	weights::{Pays, Weight},
 	BoundedVec, WeakBoundedVec,
 };
-use sp_application_crypto::ByteArray;
+use frame_system::offchain::{SendTransactionTypes, SubmitTransaction};
+use sp_application_crypto::{ByteArray, RuntimeAppPublic};
 use sp_runtime::{
 	generic::DigestItem,
+	offchain::storage::{MutateStorageError, StorageRetrievalError, StorageValueRef},
 	traits::{IsMember, One, SaturatedConversion, Saturating, Zero},
-	ConsensusEngineId, KeyTypeId, Permill,
+	transaction_validity:: {
+		InvalidTransaction, TransactionPriority, TransactionSource, TransactionValidity,
+		TransactionValidityError, ValidTransaction, 
+	},
+	ConsensusEngineId, KeyTypeId, Permill, RuntimeDebug
 };
 use sp_session::{GetSessionNumber, GetValidatorCount};
+use sp_staking::{
+	offence::{Kind, Offence, ReportOffence},
+	SessionIndex,
+};
+use scale_info::TypeInfo;
 use sp_std::prelude::*;
 
 use cessp_consensus_rrsc::{
@@ -112,6 +123,75 @@ const UNDER_CONSTRUCTION_SEGMENT_LENGTH: u32 = 256;
 
 type MaybeRandomness = Option<sp_schnorrkel::Randomness>;
 
+const DB_PREFIX: &[u8] = b"cess/rrsc/";
+
+/// Status of the offchain worker code.
+///
+/// This stores the block number at which heartbeat was requested and when the worker
+/// has actually managed to produce it.
+/// Note we store such status for every `authority_index` separately.
+#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
+struct VrfInOutStatus<BlockNumber> {
+	/// An index of the session that we are supposed to send heartbeat for.
+	pub session_index: SessionIndex,
+	/// A block number at which the heartbeat for that session has been actually sent.
+	///
+	/// It may be 0 in case the sending failed. In such case we should just retry
+	/// as soon as possible (i.e. in a worker running for the next block).
+	pub sent_at: BlockNumber,
+}
+
+/// Error which may occur while executing the off-chain code.
+#[cfg_attr(test, derive(PartialEq))]
+enum OffchainErr<BlockNumber> {
+	TooEarly,
+	WaitingForInclusion(BlockNumber),
+	AlreadyOnline(u32),
+	FailedSigning,
+	FailedToAcquireLock,
+	NetworkState,
+	SubmitTransaction,
+}
+
+impl<BlockNumber: sp_std::fmt::Debug> sp_std::fmt::Debug for OffchainErr<BlockNumber> {
+	fn fmt(&self, fmt: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+		match *self {
+			OffchainErr::TooEarly => write!(fmt, "Too early to send vrf inout."),
+			OffchainErr::WaitingForInclusion(ref block) => {
+				write!(fmt, "Vrf inout already sent at {:?}. Waiting for inclusion.", block)
+			},
+			OffchainErr::AlreadyOnline(auth_idx) => {
+				write!(fmt, "Authority {} is already online", auth_idx)
+			},
+			OffchainErr::FailedSigning => write!(fmt, "Failed to sign vrf inout"),
+			OffchainErr::FailedToAcquireLock => write!(fmt, "Failed to acquire lock"),
+			OffchainErr::NetworkState => write!(fmt, "Failed to fetch network state"),
+			OffchainErr::SubmitTransaction => write!(fmt, "Failed to submit transaction"),
+		}
+	}
+}
+
+type OffchainResult<T, A> = Result<A, OffchainErr<<T as frame_system::Config>::BlockNumber>>;
+
+pub type AuthIndex = u32;
+
+#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+pub struct VrfInOut<BlockNumber> 
+where
+	BlockNumber: PartialEq + Eq + Decode + Encode,
+{
+	/// Block number at the time heartbeat is created..
+	pub block_number: BlockNumber,
+	/// Index of the current session.
+	pub session_index: SessionIndex,
+	/// An index of the authority on the list of validators.
+	pub authority_index: AuthIndex,
+	/// The length of session validator set
+	pub validators_len: u32,
+	/// The vrf inout
+	pub vrf_inout: ([u8; 32], [u8; 64]),
+}
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
@@ -125,7 +205,7 @@ pub mod pallet {
 
 	#[pallet::config]
 	#[pallet::disable_frame_system_supertrait_check]
-	pub trait Config: pallet_timestamp::Config + frame_system::Config {
+	pub trait Config: SendTransactionTypes<Call<Self>> + pallet_timestamp::Config + frame_system::Config {
 		/// The amount of time, in slots, that each epoch should last.
 		/// NOTE: Currently it is not possible to change the epoch duration after
 		/// the chain has started. Attempting to do so will brick block production.
@@ -181,6 +261,20 @@ pub mod pallet {
 		/// Max number of authorities allowed
 		#[pallet::constant]
 		type MaxAuthorities: Get<u32>;
+
+		/// The identifier type for an authority.
+		type AuthorityId: Member
+		+ Parameter
+		+ RuntimeAppPublic
+		+ Ord
+		+ MaybeSerializeDeserialize
+		+ MaxEncodedLen;
+
+		/// The maximum number of keys that can be added.
+		type MaxKeys: Get<u32>;
+
+		/// A type for retrieving the validators supposed to be online in a session.
+		type ValidatorSet: ValidatorSetWithIdentification<Self::AccountId>;
 
 	}
 
@@ -316,6 +410,41 @@ pub mod pallet {
 	#[pallet::storage]
 	pub(super) type NextEpochConfig<T> = StorageValue<_, RRSCEpochConfiguration>;
 
+	/// The current set of keys that may issue a heartbeat.
+	#[pallet::storage]
+	#[pallet::getter(fn keys)]
+	pub(crate) type Keys<T: Config> =
+		StorageValue<_, WeakBoundedVec<T::AuthorityId, T::MaxKeys>, ValueQuery>;
+
+	/// For each session index, we keep a mapping of `SessionIndex` and `AuthIndex` to
+	/// `WrapperOpaque<BoundedOpaqueNetworkState>`.
+	#[pallet::storage]
+	#[pallet::getter(fn received_vrf_inout)]
+	pub(crate) type ReceivedVrfInOut<T: Config> = StorageDoubleMap<
+		_,
+		Twox64Concat,
+		SessionIndex,
+		Twox64Concat,
+		AuthIndex,
+		WrapperOpaque<
+			VrfInOut<T::BlockNumber>,
+		>,
+	>;
+		
+	/// A type for representing the validator id in a session.
+	pub type ValidatorId<T> = <<T as Config>::ValidatorSet as ValidatorSet<
+		<T as frame_system::Config>::AccountId,
+	>>::ValidatorId;
+
+	/// A tuple of (ValidatorId, Identification) where `Identification` is the full identification of
+	/// `ValidatorId`.
+	pub type IdentificationTuple<T> = (
+		ValidatorId<T>,
+		<<T as Config>::ValidatorSet as ValidatorSetWithIdentification<
+			<T as frame_system::Config>::AccountId,
+		>>::Identification,
+	);
+
 	#[cfg_attr(feature = "std", derive(Default))]
 	#[pallet::genesis_config]
 	pub struct GenesisConfig {
@@ -355,6 +484,21 @@ pub mod pallet {
 
 			// remove temporary "environment" entry from storage
 			Lateness::<T>::kill();
+		}
+
+		fn offchain_worker(block_number: BlockNumberFor<T>) {
+			let session_index = T::ValidatorSet::session_index();
+			let validators_len = Keys::<T>::decode_len().unwrap_or_default() as u32;
+			let _result: OffchainResult<T, ()> = Self::local_authority_keys().map(move |(authority_index, key)| {
+				log::info!("local_authority_keys");
+				Self::send_vrf_inout(
+					authority_index,
+					key,
+					session_index,
+					block_number,
+					validators_len,
+				)
+			}).collect::<_>();
 		}
 	}
 
@@ -416,6 +560,16 @@ pub mod pallet {
 			Ok(())
 		}
 
+		#[pallet::weight(0)]
+		pub fn submit_vrf_inout(
+			origin: OriginFor<T>,
+			vrf_inout: VrfInOut<T::BlockNumber>,
+			_signature: <cessp_consensus_rrsc::AuthorityId as RuntimeAppPublic>::Signature,
+		) -> DispatchResult {
+			ensure_none(origin)?;
+			log::info!("submit_vrf_inout");
+			Ok(())
+		}
 	}
 
 	#[pallet::validate_unsigned]
@@ -841,6 +995,120 @@ impl<T: Config> Pallet<T> {
 			key_owner_proof,
 		)
 		.ok()
+	}
+
+	fn send_vrf_inout(
+		authority_index: u32,
+		key: T::AuthorityId,
+		session_index: SessionIndex,
+		block_number: T::BlockNumber,
+		validators_len: u32,
+	) -> OffchainResult<T, ()> {
+		let prepare_vrf_inout = || -> OffchainResult<T, Call<T>> {
+			let keys = Keys::<T>::get();
+			let public = keys.get(authority_index as usize).unwrap();
+			let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, key.as_ref(), public.as_slice().to_vec(), 10)
+																		.ok_or(OffchainErr::FailedSigning)?;
+			let vrf_inout = VrfInOut {
+				block_number,
+				session_index,
+				authority_index,
+				validators_len,
+				vrf_inout: vrf_inout_sign,
+			};
+
+			let signature = key.sign(&vrf_inout.encode()).ok_or(OffchainErr::FailedSigning)?;
+
+			Ok(Call::submit_vrf_inout{ vrf_inout, signature })
+		};
+		
+		// acquire lock for that authority at current heartbeat to make sure we don't
+		// send concurrent heartbeats.
+		Self::with_vrf_inout_lock(authority_index, session_index, block_number, || {
+			let call = prepare_vrf_inout()?;
+			log::info!(
+				target: "runtime:rrsc_vrf",
+				"[index: {:?}] Reporting vrf inout at block: {:?} (session: {:?}): {:?}",
+				authority_index,
+				block_number,
+				session_index,
+				call,
+			);
+
+			log::info!("Submitting vrf transaction!");
+			SubmitTransaction::<T, Call<T>>::submit_unsigned_transaction(call.into())
+				.map_err(|_| OffchainErr::SubmitTransaction)?;
+
+			Ok(())
+		})
+	}
+
+	fn local_authority_keys() -> impl Iterator<Item = (u32, T::AuthorityId)> {
+		// on-chain storage
+		//
+		// At index `idx`:
+		// 1. A (ImOnline) public key to be used by a validator at index `idx` to send im-online
+		//          heartbeats.
+		let authorities = Keys::<T>::get();
+
+		// local keystore
+		//
+		// All `ImOnline` public (+private) keys currently in the local keystore.
+		let mut local_keys = T::AuthorityId::all();
+
+		local_keys.sort();
+
+		authorities.into_iter().enumerate().filter_map(move |(index, authority)| {
+			local_keys
+				.binary_search(&authority)
+				.ok()
+				.map(|location| (index as u32, local_keys[location].clone()))
+		})
+	}
+
+	fn with_vrf_inout_lock<R>(
+		authority_index: u32,
+		session_index: SessionIndex,
+		now: T::BlockNumber,
+		f: impl FnOnce() -> OffchainResult<T, R>,
+	) -> OffchainResult<T, R> {
+		let key = {
+			let mut key = DB_PREFIX.to_vec();
+			key.extend(authority_index.encode());
+			key
+		};
+		let storage = StorageValueRef::persistent(&key);
+		let res = storage.mutate(
+			|status: Result<Option<VrfInOutStatus<T::BlockNumber>>, StorageRetrievalError>| {
+				// Check if there is already a lock for that particular block.
+				// This means that the heartbeat has already been sent, and we are just waiting
+				// for it to be included. However if it doesn't get included for INCLUDE_THRESHOLD
+				// we will re-send it.
+				match status {
+					// we are still waiting for inclusion.
+					Ok(Some(status)) if status.is_recent(session_index, now) =>
+						Err(OffchainErr::WaitingForInclusion(status.sent_at)),
+					// attempt to set new status
+					_ => Ok(VrfInOutStatus { session_index, sent_at: now }),
+				}
+			},
+		);
+		if let Err(MutateStorageError::ValueFunctionFailed(err)) = res {
+			return Err(err)
+		}
+
+		let mut new_status = res.map_err(|_| OffchainErr::FailedToAcquireLock)?;
+
+		// we got the lock, let's try to send the heartbeat.
+		let res = f();
+
+		// clear the lock in case we have failed to send transaction.
+		if res.is_err() {
+			new_status.sent_at = 0u32.into();
+			storage.set(&new_status);
+		}
+
+		res
 	}
 
 }
