@@ -1104,6 +1104,7 @@ impl pallet_rrsc_vrf::Config for Runtime {
 	type MaxKeys = MaxKeys;
 	type Event = Event;
 	type ValidatorSet = Historical;
+	type FindKeyOwner = Session;
 	type NextSessionRotation = RRSC;
 	type UnsignedPriority = RRSCVrfUnsignedPriority;
 	type Randomness = RandomnessCollectiveFlip;

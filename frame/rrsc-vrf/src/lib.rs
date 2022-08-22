@@ -5,7 +5,7 @@ use codec::{Decode, Encode, MaxEncodedLen};
 use cessp_consensus_rrsc::AuthorityId;
 use frame_support::{
 	traits::{
-		EstimateNextSessionRotation, Get, OneSessionHandler, ValidatorSet,
+		EstimateNextSessionRotation, FindKeyOwner, Get, OneSessionHandler, ValidatorSet,
 		ValidatorSetWithIdentification, WrapperOpaque, Randomness
 	},
 	BoundedSlice, WeakBoundedVec,
@@ -165,6 +165,9 @@ pub mod pallet {
 		/// A type for retrieving the validators supposed to be online in a session.
 		type ValidatorSet: ValidatorSetWithIdentification<Self::AccountId>;
 
+		/// A type for retrieving the validatorId by key.
+		type FindKeyOwner: FindKeyOwner<Self::AccountId>;
+
 		/// A trait that allows us to estimate the current session progress and also the
 		/// average session length.
 		///
@@ -300,10 +303,10 @@ pub mod pallet {
 		fn offchain_worker(block_number: BlockNumberFor<T>) {
 			let session_index = T::ValidatorSet::session_index();
 			let validators_len = Keys::<T>::decode_len().unwrap_or_default() as u32;
-			let _result: OffchainResult<T, ()> = Self::local_authority_keys().map(move |(authority_index, key)| {
+			let _result: OffchainResult<T, ()> = Self::local_authority_keys().map(move |(account, key)| {
 				log::info!("local_authority_keys");
 				Self::send_vrf_inout(
-					authority_index,
+					account,
 					key,
 					session_index,
 					block_number,
@@ -382,26 +385,30 @@ pub mod pallet {
 
 impl<T: Config> Pallet<T> {
 
-	fn local_authority_keys() -> impl Iterator<Item = (u32, cessp_consensus_rrsc::AuthorityId)> {
+	fn local_authority_keys() -> impl Iterator<Item = (T::AccountId, AuthorityId)> {
 		// on-chain storage
 		//
 		// At index `idx`:
 		// 1. A (ImOnline) public key to be used by a validator at index `idx` to send im-online
 		//          heartbeats.
-		let authorities = Keys::<T>::get();
+		// let authorities = Keys::<T>::get();
 
 		// local keystore
 		//
 		// All `ImOnline` public (+private) keys currently in the local keystore.
 		let mut local_keys = cessp_consensus_rrsc::AuthorityId::all();
 
-		local_keys.sort();
+		// local_keys.sort();
 
-		authorities.into_iter().enumerate().filter_map(move |(index, authority)| {
-			local_keys
-				.binary_search(&authority)
-				.ok()
-				.map(|location| (index as u32, local_keys[location].clone()))
+		// authorities.into_iter().enumerate().filter_map(move |(index, authority)| {
+		// 	local_keys
+		// 		.binary_search(&authority)
+		// 		.ok()
+		// 		.map(|location| (index as u32, local_keys[location].clone()))
+		// })
+		local_keys.into_iter().filter_map(move |key| {
+			T::FindKeyOwner::key_owner(AuthorityId::ID, key.as_ref())
+				.and_then(|acc| Some((acc, key.clone())))
 		})
 	}
 
@@ -460,12 +467,13 @@ impl<T: Config> Pallet<T> {
 	}
 
 	fn send_vrf_inout(
-		authority_index: u32,
-		key: cessp_consensus_rrsc::AuthorityId,
+		account: T::AccountId,
+		key: AuthorityId,
 		session_index: SessionIndex,
 		block_number: T::BlockNumber,
 		validators_len: u32,
 	) -> OffchainResult<T, ()> {
+		let authority_index = 0;
 		log::info!("send_vrf_inout!");
 		let prepare_vrf_inout = || -> OffchainResult<T, Call<T>> {
 			let keys = Keys::<T>::get();
