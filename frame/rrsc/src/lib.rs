@@ -25,7 +25,7 @@ use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::{
 	dispatch::DispatchResultWithPostInfo,
 	traits::{
-		ConstU32, DisabledValidators, FindAuthor, Get, KeyOwnerProofSystem, OnTimestampSet,
+		ConstU32, DisabledValidators, EstimateNextSessionRotation, FindAuthor, FindKeyOwner, Get, KeyOwnerProofSystem, OnTimestampSet,
 		OneSessionHandler, ValidatorSet, ValidatorSetWithIdentification, WrapperOpaque,  Randomness as RandomnessT,
 	},
 	weights::{Pays, Weight},
@@ -36,7 +36,7 @@ use sp_application_crypto::{ByteArray, RuntimeAppPublic};
 use sp_runtime::{
 	generic::DigestItem,
 	offchain::storage::{MutateStorageError, StorageRetrievalError, StorageValueRef},
-	traits::{IsMember, One, SaturatedConversion, Saturating, Zero},
+	traits::{AtLeast32BitUnsigned, IsMember, One, SaturatedConversion, Saturating, Zero},
 	transaction_validity:: {
 		InvalidTransaction, TransactionPriority, TransactionSource, TransactionValidity,
 		TransactionValidityError, ValidTransaction, 
@@ -125,6 +125,10 @@ type MaybeRandomness = Option<sp_schnorrkel::Randomness>;
 
 const DB_PREFIX: &[u8] = b"cess/rrsc/";
 
+/// How many blocks do we wait for heartbeat transaction to be included
+/// before sending another one.
+const INCLUDE_THRESHOLD: u32 = 3;
+
 /// Status of the offchain worker code.
 ///
 /// This stores the block number at which heartbeat was requested and when the worker
@@ -139,6 +143,24 @@ struct VrfInOutStatus<BlockNumber> {
 	/// It may be 0 in case the sending failed. In such case we should just retry
 	/// as soon as possible (i.e. in a worker running for the next block).
 	pub sent_at: BlockNumber,
+}
+
+impl<BlockNumber: PartialEq + AtLeast32BitUnsigned + Copy> VrfInOutStatus<BlockNumber> {
+	/// Returns true if heartbeat has been recently sent.
+	///
+	/// Parameters:
+	/// `session_index` - index of current session.
+	/// `now` - block at which the offchain worker is running.
+	///
+	/// This function will return `true` iff:
+	/// 1. the session index is the same (we don't care if it went up or down)
+	/// 2. the heartbeat has been sent recently (within the threshold)
+	///
+	/// The reasoning for 1. is that it's better to send an extra heartbeat than
+	/// to stall or not send one in case of a bug.
+	fn is_recent(&self, session_index: SessionIndex, now: BlockNumber) -> bool {
+		self.session_index == session_index && self.sent_at + INCLUDE_THRESHOLD.into() > now
+	}
 }
 
 /// Error which may occur while executing the off-chain code.
@@ -262,20 +284,44 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxAuthorities: Get<u32>;
 
-		/// The identifier type for an authority.
-		type AuthorityId: Member
-		+ Parameter
-		+ RuntimeAppPublic
-		+ Ord
-		+ MaybeSerializeDeserialize
-		+ MaxEncodedLen;
-
 		/// The maximum number of keys that can be added.
 		type MaxKeys: Get<u32>;
+
+		/// The overarching event type.
+		type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
 
 		/// A type for retrieving the validators supposed to be online in a session.
 		type ValidatorSet: ValidatorSetWithIdentification<Self::AccountId>;
 
+		/// A type for retrieving the validatorId by key.
+		type FindKeyOwner: FindKeyOwner<Self::AccountId>;
+
+		/// A trait that allows us to estimate the current session progress and also the
+		/// average session length.
+		///
+		/// This parameter is used to determine the longevity of `vrf-inout` transaction and a
+		/// rough time when we should start considering sending vrf-inout, since the workers
+		/// avoids sending them at the very beginning of the session, assuming there is a
+		/// chance the authority will produce a block and they won't be necessary.
+		type NextSessionRotation: EstimateNextSessionRotation<Self::BlockNumber>;
+
+
+		/// A configuration for base priority of unsigned transactions.
+		///
+		/// This is exposed so that it can be tuned for particular runtime, when
+		/// multiple pallets send unsigned transactions.
+		#[pallet::constant]
+		type UnsignedPriority: Get<TransactionPriority>;
+
+	}
+
+	#[pallet::event]
+	#[pallet::generate_deposit(pub(super) fn deposit_event)]
+	pub enum Event<T: Config> {
+		/// A new vrf inout was received from `AuthorityId`.
+		VrfInOutReceived { authority_id: cessp_consensus_rrsc::AuthorityId },
+		/// At the end of the session, no offence was committed.
+		AllGood,
 	}
 
 	#[pallet::error]
@@ -286,6 +332,10 @@ pub mod pallet {
 		InvalidKeyOwnershipProof,
 		/// A given equivocation report is valid but already previously reported.
 		DuplicateOffenceReport,
+		/// Non existent public key.
+		InvalidKey,
+		/// Duplicated heartbeat.
+		DuplicatedVrfInOut,
 	}
 
 	/// Current epoch index.
@@ -414,7 +464,7 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn keys)]
 	pub(crate) type Keys<T: Config> =
-		StorageValue<_, WeakBoundedVec<T::AuthorityId, T::MaxKeys>, ValueQuery>;
+		StorageValue<_, WeakBoundedVec<AuthorityId, T::MaxKeys>, ValueQuery>;
 
 	/// For each session index, we keep a mapping of `SessionIndex` and `AuthIndex` to
 	/// `WrapperOpaque<BoundedOpaqueNetworkState>`.
@@ -489,10 +539,9 @@ pub mod pallet {
 		fn offchain_worker(block_number: BlockNumberFor<T>) {
 			let session_index = T::ValidatorSet::session_index();
 			let validators_len = Keys::<T>::decode_len().unwrap_or_default() as u32;
-			let _result: OffchainResult<T, ()> = Self::local_authority_keys().map(move |(authority_index, key)| {
-				log::info!("local_authority_keys");
+			let _result: OffchainResult<T, ()> = Self::local_authority_keys().map(move |(account, key)| {
 				Self::send_vrf_inout(
-					authority_index,
+					account,
 					key,
 					session_index,
 					block_number,
@@ -567,16 +616,105 @@ pub mod pallet {
 			_signature: <cessp_consensus_rrsc::AuthorityId as RuntimeAppPublic>::Signature,
 		) -> DispatchResult {
 			ensure_none(origin)?;
-			log::info!("submit_vrf_inout");
-			Ok(())
+			let current_session = T::ValidatorSet::session_index();
+			let exists =
+				ReceivedVrfInOut::<T>::contains_key(&current_session, &vrf_inout.authority_index);
+			let keys = Keys::<T>::get();
+			let public = keys.get(vrf_inout.authority_index as usize);
+			if let (false, Some(public)) = (exists, public) {
+				Self::deposit_event(Event::<T>::VrfInOutReceived { authority_id: public.clone() });
+
+				ReceivedVrfInOut::<T>::insert(
+					&current_session,
+					&vrf_inout.authority_index,
+					WrapperOpaque::from(vrf_inout.clone()),
+				);
+
+				Ok(())
+			} else if exists {
+				Err(Error::<T>::DuplicatedVrfInOut)?
+			} else {
+				Err(Error::<T>::InvalidKey)?
+			}
 		}
 	}
+
+	/// Invalid transaction custom error. Returned when validators_len field in heartbeat is
+	/// incorrect.
+	pub(crate) const INVALID_VALIDATORS_LEN: u8 = 10;
 
 	#[pallet::validate_unsigned]
 	impl<T: Config> ValidateUnsigned for Pallet<T> {
 		type Call = Call<T>;
 		fn validate_unsigned(source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-			Self::validate_unsigned(source, call)
+			if let Call::report_equivocation_unsigned { equivocation_proof, key_owner_proof } = call {
+				// discard equivocation report not coming from the local node
+				match source {
+					TransactionSource::Local | TransactionSource::InBlock => { /* allowed */ },
+					_ => {
+						log::warn!(
+							target: "runtime::rrsc",
+							"rejecting unsigned report equivocation transaction because it is not local/in-block.",
+						);
+	
+						return InvalidTransaction::Call.into()
+					},
+				}
+				Self::validate_unsigned(equivocation_proof, key_owner_proof)
+			} else if let Call::submit_vrf_inout{ vrf_inout, signature } = call {
+				// check if session index from heartbeat is recent
+				let current_session = T::ValidatorSet::session_index();
+				if vrf_inout.session_index != current_session {
+					return InvalidTransaction::Stale.into()
+				}
+
+				// verify that the incoming (unverified) pubkey is actually an authority id
+				let keys = Keys::<T>::get();
+				if keys.len() as u32 != vrf_inout.validators_len {
+					return InvalidTransaction::Custom(INVALID_VALIDATORS_LEN).into()
+				}
+				let authority_id = match keys.get(vrf_inout.authority_index as usize) {
+					Some(id) => id,
+					None => return InvalidTransaction::BadProof.into(),
+				};
+
+				let (inout, _) = {
+					let mut transcript = merlin::Transcript::new(b"RRSC");
+					transcript.append_u64(b"current epoch", 10);
+					transcript.append_message(b"chain randomness", &vec![]);
+					schnorrkel::PublicKey::from_bytes(authority_id.as_slice())
+						.and_then(|p| {
+							let (output, proof) = vrf_inout.vrf_inout;
+							p.vrf_verify(transcript, &schnorrkel::vrf::VRFOutput::from_bytes(&output)?, &schnorrkel::vrf::VRFProof::from_bytes(&proof)?)
+						})
+						.map_err(|s| InvalidTransaction::BadProof)?
+				};
+				let vrf_random = u128::from_le_bytes(inout.make_bytes::<[u8; 16]>(cessp_consensus_rrsc::RRSC_VRF_PREFIX));
+				// TODO: store vrf_random onchain
+
+				// check signature (this is expensive so we do it last).
+				let signature_valid = vrf_inout.using_encoded(|encoded_vrf_inout| {
+					authority_id.verify(&encoded_vrf_inout, &signature)
+				});
+
+				if !signature_valid {
+					return InvalidTransaction::BadProof.into()
+				}
+
+				ValidTransaction::with_tag_prefix("ImOnline")
+					.priority(T::UnsignedPriority::get())
+					.and_provides((current_session, authority_id))
+					.longevity(
+						TryInto::<u64>::try_into(
+							T::NextSessionRotation::average_session_length() / 2u32.into(),
+						)
+						.unwrap_or(64_u64),
+					)
+					.propagate(true)
+					.build()
+			} else {
+				InvalidTransaction::Call.into()
+			}
 		}
 
 		fn pre_dispatch(call: &Self::Call) -> Result<(), TransactionValidityError> {
@@ -998,16 +1136,18 @@ impl<T: Config> Pallet<T> {
 	}
 
 	fn send_vrf_inout(
-		authority_index: u32,
-		key: T::AuthorityId,
+		account: T::AccountId, 
+		key: AuthorityId,
 		session_index: SessionIndex,
 		block_number: T::BlockNumber,
 		validators_len: u32,
 	) -> OffchainResult<T, ()> {
+		let authority_index = 0;
 		let prepare_vrf_inout = || -> OffchainResult<T, Call<T>> {
 			let keys = Keys::<T>::get();
 			let public = keys.get(authority_index as usize).unwrap();
-			let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, key.as_ref(), public.as_slice().to_vec(), 10)
+			let epoch_index = EpochIndex::<T>::get();
+			let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, key.as_ref(), public.as_slice().to_vec(), epoch_index)
 																		.ok_or(OffchainErr::FailedSigning)?;
 			let vrf_inout = VrfInOut {
 				block_number,
@@ -1043,26 +1183,30 @@ impl<T: Config> Pallet<T> {
 		})
 	}
 
-	fn local_authority_keys() -> impl Iterator<Item = (u32, T::AuthorityId)> {
+	fn local_authority_keys() -> impl Iterator<Item = (T::AccountId, AuthorityId)> {
 		// on-chain storage
 		//
 		// At index `idx`:
 		// 1. A (ImOnline) public key to be used by a validator at index `idx` to send im-online
 		//          heartbeats.
-		let authorities = Keys::<T>::get();
+		//let authorities = Keys::<T>::get();
 
 		// local keystore
 		//
 		// All `ImOnline` public (+private) keys currently in the local keystore.
-		let mut local_keys = T::AuthorityId::all();
+		let local_keys = AuthorityId::all();
 
-		local_keys.sort();
+		// local_keys.sort();
 
-		authorities.into_iter().enumerate().filter_map(move |(index, authority)| {
-			local_keys
-				.binary_search(&authority)
-				.ok()
-				.map(|location| (index as u32, local_keys[location].clone()))
+		// authorities.into_iter().enumerate().filter_map(move |(index, authority)| {
+		// 	local_keys
+		// 		.binary_search(&authority)
+		// 		.ok()
+		// 		.map(|location| (index as u32, local_keys[location].clone()))
+		// })
+		local_keys.into_iter().filter_map(move |key| {
+			T::FindKeyOwner::key_owner(AuthorityId::ID, key.as_ref())
+				.and_then(|acc| Some((acc, key.clone())))
 		})
 	}
 

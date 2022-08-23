@@ -185,46 +185,25 @@ where
 /// on this node) or that already in a block. This guarantees that only block authors can include
 /// unsigned equivocation reports.
 impl<T: Config> Pallet<T> {
-	pub fn validate_unsigned(source: TransactionSource, call: &Call<T>) -> TransactionValidity {
-		log::info!("Source: {:?}", source);
-		if let Call::report_equivocation_unsigned { equivocation_proof, key_owner_proof } = call {
-			// discard equivocation report not coming from the local node
-			match source {
-				TransactionSource::Local | TransactionSource::InBlock => { /* allowed */ },
-				_ => {
-					log::warn!(
-						target: "runtime::rrsc",
-						"rejecting unsigned report equivocation transaction because it is not local/in-block.",
-					);
+	pub fn validate_unsigned(
+		equivocation_proof: &Box<EquivocationProof<T::Header>>,
+		key_owner_proof: &T::KeyOwnerProof,
+	) -> TransactionValidity {
+		// check report staleness
+		is_known_offence::<T>(equivocation_proof, key_owner_proof)?;
 
-					return InvalidTransaction::Call.into()
-				},
-			}
+		let longevity =
+			<T::HandleEquivocation as HandleEquivocation<T>>::ReportLongevity::get();
 
-			// check report staleness
-			is_known_offence::<T>(equivocation_proof, key_owner_proof)?;
-
-			let longevity =
-				<T::HandleEquivocation as HandleEquivocation<T>>::ReportLongevity::get();
-
-			ValidTransaction::with_tag_prefix("RRSCEquivocation")
-				// We assign the maximum priority for any equivocation report.
-				.priority(TransactionPriority::max_value())
-				// Only one equivocation report for the same offender at the same slot.
-				.and_provides((equivocation_proof.offender.clone(), *equivocation_proof.slot))
-				.longevity(longevity)
-				// We don't propagate this. This can never be included on a remote node.
-				.propagate(false)
-				.build()
-		} else if let Call::submit_vrf_inout{ } = call {
-			log::info!("else if let Call::submit_vrf_inout = call");
-			ValidTransaction::with_tag_prefix("RRSCVrf")
-				.priority(TransactionPriority::max_value())
-				.propagate(true)
-				.build()
-		} else {
-			InvalidTransaction::Call.into()
-		}
+		ValidTransaction::with_tag_prefix("RRSCEquivocation")
+			// We assign the maximum priority for any equivocation report.
+			.priority(TransactionPriority::max_value())
+			// Only one equivocation report for the same offender at the same slot.
+			.and_provides((equivocation_proof.offender.clone(), *equivocation_proof.slot))
+			.longevity(longevity)
+			// We don't propagate this. This can never be included on a remote node.
+			.propagate(false)
+			.build()
 	}
 
 	pub fn pre_dispatch(call: &Call<T>) -> Result<(), TransactionValidityError> {

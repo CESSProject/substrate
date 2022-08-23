@@ -476,6 +476,14 @@ impl pallet_rrsc::Config for Runtime {
 
 	type WeightInfo = ();
 	type MaxAuthorities = MaxAuthorities;
+
+	type MaxKeys = MaxKeys;
+	type Event = Event;
+	type ValidatorSet = Historical;
+	type FindKeyOwner = Session;
+	type NextSessionRotation = RRSC;
+	type UnsignedPriority = RRSCVrfUnsignedPriority;
+	// type Randomness = RandomnessCollectiveFlip;
 }
 
 impl<C> frame_system::offchain::SendTransactionTypes<C> for Runtime
@@ -1099,16 +1107,15 @@ parameter_types! {
 	pub const RRSCVrfUnsignedPriority: TransactionPriority = TransactionPriority::max_value();
 }
 
-impl pallet_rrsc_vrf::Config for Runtime {
-	// type AuthorityId = cessp_consensus_rrsc::AuthorityId;
-	type MaxKeys = MaxKeys;
-	type Event = Event;
-	type ValidatorSet = Historical;
-	type FindKeyOwner = Session;
-	type NextSessionRotation = RRSC;
-	type UnsignedPriority = RRSCVrfUnsignedPriority;
-	type Randomness = RandomnessCollectiveFlip;
-	
+// impl pallet_rrsc_vrf::Config for Runtime {
+// 	// type AuthorityId = cessp_consensus_rrsc::AuthorityId;
+// 	type MaxKeys = MaxKeys;
+// 	type Event = Event;
+// 	type ValidatorSet = Historical;
+// 	type FindKeyOwner = Session;
+// 	type NextSessionRotation = RRSC;
+// 	type UnsignedPriority = RRSCVrfUnsignedPriority;
+// 	type Randomness = RandomnessCollectiveFlip;
 // }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
