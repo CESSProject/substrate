@@ -648,19 +648,7 @@ pub mod pallet {
 		type Call = Call<T>;
 		fn validate_unsigned(source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			if let Call::report_equivocation_unsigned { equivocation_proof, key_owner_proof } = call {
-				// discard equivocation report not coming from the local node
-				match source {
-					TransactionSource::Local | TransactionSource::InBlock => { /* allowed */ },
-					_ => {
-						log::warn!(
-							target: "runtime::rrsc",
-							"rejecting unsigned report equivocation transaction because it is not local/in-block.",
-						);
-	
-						return InvalidTransaction::Call.into()
-					},
-				}
-				Self::validate_unsigned(equivocation_proof, key_owner_proof)
+				Self::validate_unsigned(source, call)	
 			} else if let Call::submit_vrf_inout{ vrf_inout, signature } = call {
 				// check if session index from heartbeat is recent
 				let current_session = T::ValidatorSet::session_index();
@@ -701,7 +689,7 @@ pub mod pallet {
 					return InvalidTransaction::BadProof.into()
 				}
 
-				ValidTransaction::with_tag_prefix("ImOnline")
+				ValidTransaction::with_tag_prefix("RRSC")
 					.priority(T::UnsignedPriority::get())
 					.and_provides((current_session, authority_id))
 					.longevity(
@@ -714,7 +702,7 @@ pub mod pallet {
 					.build()
 			} else {
 				InvalidTransaction::Call.into()
-			}
+			} 
 		}
 
 		fn pre_dispatch(call: &Self::Call) -> Result<(), TransactionValidityError> {

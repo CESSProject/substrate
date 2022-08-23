@@ -186,24 +186,41 @@ where
 /// unsigned equivocation reports.
 impl<T: Config> Pallet<T> {
 	pub fn validate_unsigned(
-		equivocation_proof: &Box<EquivocationProof<T::Header>>,
-		key_owner_proof: &T::KeyOwnerProof,
+		source: TransactionSource, 
+		call: &Call<T>,
 	) -> TransactionValidity {
-		// check report staleness
-		is_known_offence::<T>(equivocation_proof, key_owner_proof)?;
+		if let Call::report_equivocation_unsigned { equivocation_proof, key_owner_proof } = call {
+			// discard equivocation report not coming from the local node
+			match source {
+				TransactionSource::Local | TransactionSource::InBlock => { /* allowed */ },
+				_ => {
+					log::warn!(
+						target: "runtime::rrsc",
+						"rejecting unsigned report equivocation transaction because it is not local/in-block.",
+					);
 
-		let longevity =
-			<T::HandleEquivocation as HandleEquivocation<T>>::ReportLongevity::get();
+					return InvalidTransaction::Call.into()
+				},
+			}
 
-		ValidTransaction::with_tag_prefix("RRSCEquivocation")
-			// We assign the maximum priority for any equivocation report.
-			.priority(TransactionPriority::max_value())
-			// Only one equivocation report for the same offender at the same slot.
-			.and_provides((equivocation_proof.offender.clone(), *equivocation_proof.slot))
-			.longevity(longevity)
-			// We don't propagate this. This can never be included on a remote node.
-			.propagate(false)
-			.build()
+			// check report staleness
+			is_known_offence::<T>(equivocation_proof, key_owner_proof)?;
+
+			let longevity =
+				<T::HandleEquivocation as HandleEquivocation<T>>::ReportLongevity::get();
+
+			ValidTransaction::with_tag_prefix("RRSCEquivocation")
+				// We assign the maximum priority for any equivocation report.
+				.priority(TransactionPriority::max_value())
+				// Only one equivocation report for the same offender at the same slot.
+				.and_provides((equivocation_proof.offender.clone(), *equivocation_proof.slot))
+				.longevity(longevity)
+				// We don't propagate this. This can never be included on a remote node.
+				.propagate(false)
+				.build()
+		} else {
+			InvalidTransaction::Call.into()
+		}
 	}
 
 	pub fn pre_dispatch(call: &Call<T>) -> Result<(), TransactionValidityError> {
