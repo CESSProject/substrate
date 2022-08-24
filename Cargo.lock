@@ -909,7 +909,6 @@ dependencies = [
  "pallet-contracts-rpc",
  "pallet-im-online",
  "pallet-mmr-rpc",
- "pallet-rrsc-vrf",
  "pallet-transaction-payment-rpc",
  "parity-scale-codec",
  "rand 0.8.4",
@@ -6684,28 +6683,6 @@ dependencies = [
  "sp-npos-elections",
  "sp-runtime",
  "sp-session",
- "sp-staking",
- "sp-std",
-]
-
-[[package]]
-name = "pallet-rrsc-vrf"
-version = "0.1.0"
-dependencies = [
- "cessp-consensus-rrsc",
- "frame-support",
- "frame-system",
- "log 0.4.14",
- "merlin",
- "pallet-authorship",
- "pallet-session",
- "parity-scale-codec",
- "scale-info",
- "schnorrkel",
- "sp-application-crypto",
- "sp-core",
- "sp-io",
- "sp-runtime",
  "sp-staking",
  "sp-std",
 ]

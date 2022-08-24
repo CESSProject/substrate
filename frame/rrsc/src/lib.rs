@@ -29,7 +29,7 @@ use frame_support::{
 		OneSessionHandler, ValidatorSet, ValidatorSetWithIdentification, WrapperOpaque,  Randomness as RandomnessT,
 	},
 	weights::{Pays, Weight},
-	BoundedVec, WeakBoundedVec,
+	BoundedVec, WeakBoundedVec, BoundedSlice
 };
 use frame_system::offchain::{SendTransactionTypes, SubmitTransaction};
 use sp_application_crypto::{ByteArray, RuntimeAppPublic};
@@ -172,6 +172,7 @@ enum OffchainErr<BlockNumber> {
 	FailedSigning,
 	FailedToAcquireLock,
 	NetworkState,
+	NoKeys,
 	SubmitTransaction,
 }
 
@@ -188,6 +189,7 @@ impl<BlockNumber: sp_std::fmt::Debug> sp_std::fmt::Debug for OffchainErr<BlockNu
 			OffchainErr::FailedSigning => write!(fmt, "Failed to sign vrf inout"),
 			OffchainErr::FailedToAcquireLock => write!(fmt, "Failed to acquire lock"),
 			OffchainErr::NetworkState => write!(fmt, "Failed to fetch network state"),
+			OffchainErr::NoKeys => write!(fmt, "Keys not found"),
 			OffchainErr::SubmitTransaction => write!(fmt, "Failed to submit transaction"),
 		}
 	}
@@ -495,11 +497,16 @@ pub mod pallet {
 		>>::Identification,
 	);
 
+	#[pallet::storage]
+	#[pallet::getter(fn vrf_inout_after)]
+	pub(crate) type VrfInOutAfter<T: Config> = StorageValue<_, T::BlockNumber, ValueQuery>;
+
 	#[cfg_attr(feature = "std", derive(Default))]
 	#[pallet::genesis_config]
 	pub struct GenesisConfig {
 		pub authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
 		pub epoch_config: Option<RRSCEpochConfiguration>,
+		pub keys: Vec<AuthorityId>,
 	}
 
 	#[pallet::genesis_build]
@@ -510,6 +517,7 @@ pub mod pallet {
 			EpochConfig::<T>::put(
 				self.epoch_config.clone().expect("epoch_config must not be None"),
 			);
+			Pallet::<T>::initialize_keys(&self.keys);
 		}
 	}
 
@@ -539,9 +547,8 @@ pub mod pallet {
 		fn offchain_worker(block_number: BlockNumberFor<T>) {
 			let session_index = T::ValidatorSet::session_index();
 			let validators_len = Keys::<T>::decode_len().unwrap_or_default() as u32;
-			let _result: OffchainResult<T, ()> = Self::local_authority_keys().map(move |(account, key)| {
+			let _result: OffchainResult<T, ()> = Self::local_authority_keys().map(move |(_, key)| {
 				Self::send_vrf_inout(
-					account,
 					key,
 					session_index,
 					block_number,
@@ -1123,8 +1130,16 @@ impl<T: Config> Pallet<T> {
 		.ok()
 	}
 
+	fn initialize_keys(keys: &[AuthorityId]) {
+		if !keys.is_empty() {
+			assert!(Keys::<T>::get().is_empty(), "Keys are already initialized!");
+			let bounded_keys = <BoundedSlice<'_, _, T::MaxKeys>>::try_from(keys)
+				.expect("More than the maximum number of keys provided");
+			Keys::<T>::put(bounded_keys);
+		}
+	}
+
 	fn send_vrf_inout(
-		account: T::AccountId, 
 		key: AuthorityId,
 		session_index: SessionIndex,
 		block_number: T::BlockNumber,
@@ -1133,7 +1148,10 @@ impl<T: Config> Pallet<T> {
 		let authority_index = 0;
 		let prepare_vrf_inout = || -> OffchainResult<T, Call<T>> {
 			let keys = Keys::<T>::get();
-			let public = keys.get(authority_index as usize).unwrap();
+			let public = match keys.iter().find(|&p| *p == key) {
+				Some(p) => p,
+				None => return Err(OffchainErr::NoKeys),
+			};
 			let epoch_index = EpochIndex::<T>::get();
 			let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, key.as_ref(), public.as_slice().to_vec(), epoch_index)
 																		.ok_or(OffchainErr::FailedSigning)?;
@@ -1186,12 +1204,6 @@ impl<T: Config> Pallet<T> {
 
 		// local_keys.sort();
 
-		// authorities.into_iter().enumerate().filter_map(move |(index, authority)| {
-		// 	local_keys
-		// 		.binary_search(&authority)
-		// 		.ok()
-		// 		.map(|location| (index as u32, local_keys[location].clone()))
-		// })
 		local_keys.into_iter().filter_map(move |key| {
 			T::FindKeyOwner::key_owner(AuthorityId::ID, key.as_ref())
 				.and_then(|acc| Some((acc, key.clone())))
@@ -1309,14 +1321,29 @@ impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 	where
 		I: Iterator<Item = (&'a T::AccountId, AuthorityId)>,
 	{
+		let block_number = <frame_system::Pallet<T>>::block_number();
+		let half_session = T::NextSessionRotation::average_session_length() / 2u32.into();
+		<VrfInOutAfter<T>>::put(block_number + half_session);
+
 		let authorities = validators.map(|(_account, k)| (k, 1)).collect::<Vec<_>>();
 		let bounded_authorities = WeakBoundedVec::<_, T::MaxAuthorities>::force_from(
-			authorities,
+			authorities.clone(),
 			Some(
 				"Warning: The session has more validators than expected. \
 				A runtime configuration adjustment may be needed.",
 			),
 		);
+
+		let keys = authorities.into_iter().map(|x| x.0).collect::<Vec<_>>();
+
+		let bounded_keys = WeakBoundedVec::<_, T::MaxKeys>::force_from(
+			keys.to_vec(),
+			Some(
+				"Warning: The session has more keys than expected. \
+  				A runtime configuration adjustment may be needed.",
+			),
+		);
+		Keys::<T>::put(bounded_keys);
 
 		let next_authorities = queued_validators.map(|(_account, k)| (k, 1)).collect::<Vec<_>>();
 		let next_bounded_authorities = WeakBoundedVec::<_, T::MaxAuthorities>::force_from(
