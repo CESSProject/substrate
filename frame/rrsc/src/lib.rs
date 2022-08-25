@@ -26,7 +26,7 @@ use frame_support::{
 	dispatch::DispatchResultWithPostInfo,
 	traits::{
 		ConstU32, DisabledValidators, EstimateNextSessionRotation, FindAuthor, FindKeyOwner, Get, KeyOwnerProofSystem, OnTimestampSet,
-		OneSessionHandler, ValidatorSet, ValidatorSetWithIdentification, WrapperOpaque,  Randomness as RandomnessT,
+		OneSessionHandler, ValidatorSet, ValidatorSetWithIdentification, WrapperOpaque,
 	},
 	weights::{Pays, Weight},
 	BoundedVec, WeakBoundedVec, BoundedSlice
@@ -36,18 +36,15 @@ use sp_application_crypto::{ByteArray, RuntimeAppPublic};
 use sp_runtime::{
 	generic::DigestItem,
 	offchain::storage::{MutateStorageError, StorageRetrievalError, StorageValueRef},
-	traits::{AtLeast32BitUnsigned, IsMember, One, SaturatedConversion, Saturating, Zero},
+	traits::{AtLeast32BitUnsigned, IsMember, One, SaturatedConversion, Saturating, TrailingZeroInput, Zero},
 	transaction_validity:: {
 		InvalidTransaction, TransactionPriority, TransactionSource, TransactionValidity,
 		TransactionValidityError, ValidTransaction, 
 	},
-	ConsensusEngineId, KeyTypeId, Permill, RuntimeDebug
+	ConsensusEngineId, KeyTypeId, PerThing, Perbill, Permill, RuntimeDebug
 };
 use sp_session::{GetSessionNumber, GetValidatorCount};
-use sp_staking::{
-	offence::{Kind, Offence, ReportOffence},
-	SessionIndex,
-};
+use sp_staking::SessionIndex;
 use scale_info::TypeInfo;
 use sp_std::prelude::*;
 
@@ -168,10 +165,8 @@ impl<BlockNumber: PartialEq + AtLeast32BitUnsigned + Copy> VrfInOutStatus<BlockN
 enum OffchainErr<BlockNumber> {
 	TooEarly,
 	WaitingForInclusion(BlockNumber),
-	AlreadyOnline(u32),
 	FailedSigning,
 	FailedToAcquireLock,
-	NetworkState,
 	NoKeys,
 	SubmitTransaction,
 }
@@ -183,12 +178,8 @@ impl<BlockNumber: sp_std::fmt::Debug> sp_std::fmt::Debug for OffchainErr<BlockNu
 			OffchainErr::WaitingForInclusion(ref block) => {
 				write!(fmt, "Vrf inout already sent at {:?}. Waiting for inclusion.", block)
 			},
-			OffchainErr::AlreadyOnline(auth_idx) => {
-				write!(fmt, "Authority {} is already online", auth_idx)
-			},
 			OffchainErr::FailedSigning => write!(fmt, "Failed to sign vrf inout"),
 			OffchainErr::FailedToAcquireLock => write!(fmt, "Failed to acquire lock"),
-			OffchainErr::NetworkState => write!(fmt, "Failed to fetch network state"),
 			OffchainErr::NoKeys => write!(fmt, "Keys not found"),
 			OffchainErr::SubmitTransaction => write!(fmt, "Failed to submit transaction"),
 		}
@@ -545,16 +536,18 @@ pub mod pallet {
 		}
 
 		fn offchain_worker(block_number: BlockNumberFor<T>) {
-			let session_index = T::ValidatorSet::session_index();
-			let validators_len = Keys::<T>::decode_len().unwrap_or_default() as u32;
-			let _result: OffchainResult<T, ()> = Self::local_authority_keys().map(move |(_, key)| {
-				Self::send_vrf_inout(
-					key,
-					session_index,
-					block_number,
-					validators_len,
-				)
-			}).collect::<_>();
+			
+			for res in Self::build_and_send_vrf_inout(block_number).into_iter().flatten() {
+				if let Err(e) = res {
+					log::debug!(
+						target: "runtime::rrsc",
+						"Skipping vrf at {:?}: {:?}",
+						block_number,
+						e,
+					)
+				}
+			}
+			
 		}
 	}
 
@@ -1139,6 +1132,56 @@ impl<T: Config> Pallet<T> {
 		}
 	}
 
+	pub(crate) fn build_and_send_vrf_inout(
+		block_number: T::BlockNumber,
+	) -> OffchainResult<T, impl Iterator<Item = OffchainResult<T, ()>>> {
+		const START_VRF_RANDOM_PERIOD: Permill = Permill::from_percent(10);
+		const START_VRF_FINAL_PERIOD: Permill = Permill::from_percent(80);
+
+		let session_index = T::ValidatorSet::session_index();
+		let validators_len = Keys::<T>::decode_len().unwrap_or_default() as u32;
+
+		let random_choice = |progress: Permill| {
+			// given session progress `p` and session length `l`
+			// the threshold formula is: p^6 + 1/l
+			let session_length = T::NextSessionRotation::average_session_length();
+			let residual = Permill::from_rational(1u32, session_length.saturated_into());
+			let threshold: Permill = progress.saturating_pow(6).saturating_add(residual);
+
+			let seed = sp_io::offchain::random_seed();
+			let random = <u32>::decode(&mut TrailingZeroInput::new(seed.as_ref()))
+				.expect("input is padded with zeroes; qed");
+			let random = Permill::from_parts(random % Permill::ACCURACY);
+
+			random <= threshold
+		};
+
+		let should_submit_vrf = if let (Some(progress), _) =
+			T::NextSessionRotation::estimate_current_session_progress(block_number)
+		{
+			progress >= START_VRF_FINAL_PERIOD ||
+				progress >= START_VRF_RANDOM_PERIOD && random_choice(progress)
+		} else {
+			// otherwise we fallback to using the block number calculated at the beginning
+			// of the session that should roughly correspond to the middle of the session
+			let vrf_inout_after = <VrfInOutAfter<T>>::get();
+			block_number >= vrf_inout_after
+		};
+
+		if !should_submit_vrf {
+			return Err(OffchainErr::TooEarly)
+		}
+
+		Ok(Self::local_authority_keys().map(move |(_, key)| {
+			Self::send_vrf_inout(
+				key,
+				session_index,
+				block_number,
+				validators_len,
+			)
+		}))
+	}
+
 	fn send_vrf_inout(
 		key: AuthorityId,
 		session_index: SessionIndex,
@@ -1168,8 +1211,8 @@ impl<T: Config> Pallet<T> {
 			Ok(Call::submit_vrf_inout{ vrf_inout, signature })
 		};
 		
-		// acquire lock for that authority at current heartbeat to make sure we don't
-		// send concurrent heartbeats.
+		// acquire lock for that authority at current block to make sure we don't
+		// send concurrent vrf.
 		Self::with_vrf_inout_lock(authority_index, session_index, block_number, || {
 			let call = prepare_vrf_inout()?;
 			log::info!(
@@ -1190,19 +1233,10 @@ impl<T: Config> Pallet<T> {
 	}
 
 	fn local_authority_keys() -> impl Iterator<Item = (T::AccountId, AuthorityId)> {
-		// on-chain storage
-		//
-		// At index `idx`:
-		// 1. A (ImOnline) public key to be used by a validator at index `idx` to send im-online
-		//          heartbeats.
-		//let authorities = Keys::<T>::get();
-
 		// local keystore
 		//
-		// All `ImOnline` public (+private) keys currently in the local keystore.
+		// All public (+private) keys currently in the local keystore.
 		let local_keys = AuthorityId::all();
-
-		// local_keys.sort();
 
 		local_keys.into_iter().filter_map(move |key| {
 			T::FindKeyOwner::key_owner(AuthorityId::ID, key.as_ref())
