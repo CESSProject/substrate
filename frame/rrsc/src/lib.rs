@@ -479,10 +479,23 @@ pub mod pallet {
 		Twox64Concat,
 		SessionIndex,
 		Twox64Concat,
-		T::AccountId,
+		AuthIndex,
 		WrapperOpaque<
 			VrfInOut<T::BlockNumber>,
 		>,
+	>;
+
+	/// For each epoch index, we keep a mapping of `EpochIndex` and `AccountId` to
+	/// `VrfRandom`.
+	#[pallet::storage]
+	#[pallet::getter(fn received_vrf_random)]
+	pub(crate) type ReceivedVrfRandom<T: Config> = StorageDoubleMap<
+		_,
+		Twox64Concat,
+		u64,
+		Twox64Concat,
+		T::AccountId,
+		u128,
 	>;
 		
 	/// A type for representing the validator id in a session.
@@ -626,10 +639,8 @@ pub mod pallet {
 		) -> DispatchResult {
 			ensure_none(origin)?;
 			let current_session = T::ValidatorSet::session_index();
-			let account = T::FindKeyOwner::key_owner(AuthorityId::ID, vrf_inout.key.as_ref())
-														.ok_or(Error::<T>::InvalidKey)?;
 			let exists =
-				ReceivedVrfInOut::<T>::contains_key(&current_session, &account);
+				ReceivedVrfInOut::<T>::contains_key(&current_session, &vrf_inout.authority_index);
 			let keys = Keys::<T>::get();
 			let public = keys.get(vrf_inout.authority_index as usize);
 			if let (false, Some(public)) = (exists, public) {
@@ -637,7 +648,7 @@ pub mod pallet {
 
 				ReceivedVrfInOut::<T>::insert(
 					&current_session,
-					&account,
+					&vrf_inout.authority_index,
 					WrapperOpaque::from(vrf_inout.clone()),
 				);
 
@@ -689,7 +700,15 @@ pub mod pallet {
 						.map_err(|s| InvalidTransaction::BadProof)?
 				};
 				let vrf_random = u128::from_le_bytes(inout.make_bytes::<[u8; 16]>(cessp_consensus_rrsc::RRSC_VRF_PREFIX));
-				// TODO: store vrf_random onchain
+				let account = match T::FindKeyOwner::key_owner(AuthorityId::ID, vrf_inout.key.as_ref()) {
+					Some(acc) => acc,
+					None => return InvalidTransaction::BadProof.into(),
+				};
+				ReceivedVrfRandom::<T>::insert(
+					&EpochIndex::<T>::get(),
+					&account,
+					&vrf_random,
+				);
 
 				// check signature (this is expensive so we do it last).
 				let signature_valid = vrf_inout.using_encoded(|encoded_vrf_inout| {
