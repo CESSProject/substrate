@@ -210,6 +210,8 @@ where
 	pub authority_index: AuthIndex,
 	/// The length of session validator set
 	pub validators_len: u32,
+	/// The session key
+	pub key: AuthorityId,
 	/// The vrf inout
 	pub vrf_inout: ([u8; 32], [u8; 64]),
 }
@@ -475,7 +477,7 @@ pub mod pallet {
 		Twox64Concat,
 		SessionIndex,
 		Twox64Concat,
-		AuthIndex,
+		T::AccountId,
 		WrapperOpaque<
 			VrfInOut<T::BlockNumber>,
 		>,
@@ -617,8 +619,10 @@ pub mod pallet {
 		) -> DispatchResult {
 			ensure_none(origin)?;
 			let current_session = T::ValidatorSet::session_index();
+			let account = T::FindKeyOwner::key_owner(AuthorityId::ID, vrf_inout.key.as_ref())
+														.ok_or(Error::<T>::InvalidKey)?;
 			let exists =
-				ReceivedVrfInOut::<T>::contains_key(&current_session, &vrf_inout.authority_index);
+				ReceivedVrfInOut::<T>::contains_key(&current_session, &account);
 			let keys = Keys::<T>::get();
 			let public = keys.get(vrf_inout.authority_index as usize);
 			if let (false, Some(public)) = (exists, public) {
@@ -626,7 +630,7 @@ pub mod pallet {
 
 				ReceivedVrfInOut::<T>::insert(
 					&current_session,
-					&vrf_inout.authority_index,
+					&account,
 					WrapperOpaque::from(vrf_inout.clone()),
 				);
 
@@ -680,8 +684,8 @@ pub mod pallet {
 
 				let (inout, _) = {
 					let mut transcript = merlin::Transcript::new(b"RRSC");
-					transcript.append_u64(b"current epoch", 10);
-					transcript.append_message(b"chain randomness", &vec![]);
+					transcript.append_u64(b"current epoch", EpochIndex::<T>::get());
+					transcript.append_message(b"chain randomness", &Self::randomness()[..]);
 					schnorrkel::PublicKey::from_bytes(authority_id.as_slice())
 						.and_then(|p| {
 							let (output, proof) = vrf_inout.vrf_inout;
@@ -1147,13 +1151,14 @@ impl<T: Config> Pallet<T> {
 			let keys = Keys::<T>::get();
 			let public = keys.get(authority_index as usize).unwrap();
 			let epoch_index = EpochIndex::<T>::get();
-			let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, key.as_ref(), public.as_slice().to_vec(), epoch_index)
+			let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, key.as_ref(), Self::randomness().to_vec(), epoch_index)
 																		.ok_or(OffchainErr::FailedSigning)?;
 			let vrf_inout = VrfInOut {
 				block_number,
 				session_index,
 				authority_index,
 				validators_len,
+				key: key.clone(),
 				vrf_inout: vrf_inout_sign,
 			};
 
