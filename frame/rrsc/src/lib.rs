@@ -203,6 +203,8 @@ where
 	pub authority_index: AuthIndex,
 	/// The length of session validator set
 	pub validators_len: u32,
+	/// The session key
+	pub key: AuthorityId,
 	/// The vrf inout
 	pub vrf_inout: ([u8; 32], [u8; 64]),
 }
@@ -473,6 +475,19 @@ pub mod pallet {
 			VrfInOut<T::BlockNumber>,
 		>,
 	>;
+
+	/// For each epoch index, we keep a mapping of `EpochIndex` and `AccountId` to
+	/// `VrfRandom`.
+	#[pallet::storage]
+	#[pallet::getter(fn received_vrf_random)]
+	pub(crate) type ReceivedVrfRandom<T: Config> = StorageDoubleMap<
+		_,
+		Twox64Concat,
+		u64,
+		Twox64Concat,
+		T::AccountId,
+		u128,
+	>;
 		
 	/// A type for representing the validator id in a session.
 	pub type ValidatorId<T> = <<T as Config>::ValidatorSet as ValidatorSet<
@@ -668,8 +683,8 @@ pub mod pallet {
 
 				let (inout, _) = {
 					let mut transcript = merlin::Transcript::new(b"RRSC");
-					transcript.append_u64(b"current epoch", 10);
-					transcript.append_message(b"chain randomness", &vec![]);
+					transcript.append_u64(b"current epoch", EpochIndex::<T>::get());
+					transcript.append_message(b"chain randomness", &Self::randomness()[..]);
 					schnorrkel::PublicKey::from_bytes(authority_id.as_slice())
 						.and_then(|p| {
 							let (output, proof) = vrf_inout.vrf_inout;
@@ -678,7 +693,15 @@ pub mod pallet {
 						.map_err(|s| InvalidTransaction::BadProof)?
 				};
 				let vrf_random = u128::from_le_bytes(inout.make_bytes::<[u8; 16]>(cessp_consensus_rrsc::RRSC_VRF_PREFIX));
-				// TODO: store vrf_random onchain
+				let account = match T::FindKeyOwner::key_owner(AuthorityId::ID, vrf_inout.key.as_ref()) {
+					Some(acc) => acc,
+					None => return InvalidTransaction::BadProof.into(),
+				};
+				ReceivedVrfRandom::<T>::insert(
+					&EpochIndex::<T>::get(),
+					&account,
+					&vrf_random,
+				);
 
 				// check signature (this is expensive so we do it last).
 				let signature_valid = vrf_inout.using_encoded(|encoded_vrf_inout| {
@@ -1196,13 +1219,14 @@ impl<T: Config> Pallet<T> {
 				None => return Err(OffchainErr::NoKeys),
 			};
 			let epoch_index = EpochIndex::<T>::get();
-			let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, key.as_ref(), public.as_slice().to_vec(), epoch_index)
+			let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, key.as_ref(), Self::randomness().to_vec(), epoch_index)
 																		.ok_or(OffchainErr::FailedSigning)?;
 			let vrf_inout = VrfInOut {
 				block_number,
 				session_index,
 				authority_index,
 				validators_len,
+				key: key.clone(),
 				vrf_inout: vrf_inout_sign,
 			};
 
