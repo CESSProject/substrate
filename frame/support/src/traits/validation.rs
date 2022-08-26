@@ -258,3 +258,9 @@ impl DisabledValidators for () {
 		false
 	}
 }
+
+/// Trait used to retrieve credits of validators.
+pub trait ValidatorCredits<ValidatorId> {
+	/// Returns the credits of all validators when `epoch_index`.
+	fn credits(epoch_index: u64) -> Vec<(ValidatorId, u32)>;
+}
