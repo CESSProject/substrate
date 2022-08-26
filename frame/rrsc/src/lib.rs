@@ -26,7 +26,7 @@ use frame_support::{
 	dispatch::DispatchResultWithPostInfo,
 	traits::{
 		ConstU32, DisabledValidators, FindAuthor, Get, KeyOwnerProofSystem, OnTimestampSet,
-		OneSessionHandler, Randomness as RandomnessT,
+		OneSessionHandler, Randomness as RandomnessT, ValidatorCredits,
 	},
 	weights::{Pays, Weight},
 	BoundedVec, WeakBoundedVec,
@@ -182,6 +182,8 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxAuthorities: Get<u32>;
 
+		/// A way to retrieve credits of validators when elect active validators.
+		type ValidatorCredits: ValidatorCredits<Self::AccountId>;
 	}
 
 	#[pallet::error]

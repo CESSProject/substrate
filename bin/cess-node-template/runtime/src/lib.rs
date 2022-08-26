@@ -476,6 +476,7 @@ impl pallet_rrsc::Config for Runtime {
 
 	type WeightInfo = ();
 	type MaxAuthorities = MaxAuthorities;
+	type ValidatorCredits = ();
 }
 
 impl<C> frame_system::offchain::SendTransactionTypes<C> for Runtime
