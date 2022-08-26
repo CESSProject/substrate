@@ -1211,13 +1211,14 @@ impl<T: Config> Pallet<T> {
 		block_number: T::BlockNumber,
 		validators_len: u32,
 	) -> OffchainResult<T, ()> {
-		let authority_index = 0;
+
+		let local_keys = AuthorityId::all();
+		let authority_index = match local_keys.iter().position(|k| *k == key) {
+			Some(index) => index as u32,
+			None => return Err(OffchainErr::NoKeys)
+		};
+
 		let prepare_vrf_inout = || -> OffchainResult<T, Call<T>> {
-			let keys = Keys::<T>::get();
-			let public = match keys.iter().find(|&p| *p == key) {
-				Some(p) => p,
-				None => return Err(OffchainErr::NoKeys),
-			};
 			let epoch_index = EpochIndex::<T>::get();
 			let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, key.as_ref(), Self::randomness().to_vec(), epoch_index)
 																		.ok_or(OffchainErr::FailedSigning)?;
