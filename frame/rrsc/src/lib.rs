@@ -662,70 +662,7 @@ pub mod pallet {
 	impl<T: Config> ValidateUnsigned for Pallet<T> {
 		type Call = Call<T>;
 		fn validate_unsigned(source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-			if let Call::report_equivocation_unsigned { equivocation_proof, key_owner_proof } = call {
-				Self::validate_unsigned(source, call)	
-			} else if let Call::submit_vrf_inout{ vrf_inout, signature } = call {
-				// check if session index from heartbeat is recent
-				let current_session = T::ValidatorSet::session_index();
-				if vrf_inout.session_index != current_session {
-					return InvalidTransaction::Stale.into()
-				}
-
-				// verify that the incoming (unverified) pubkey is actually an authority id
-				let keys = Keys::<T>::get();
-				if keys.len() as u32 != vrf_inout.validators_len {
-					return InvalidTransaction::Custom(INVALID_VALIDATORS_LEN).into()
-				}
-				let authority_id = match keys.get(vrf_inout.authority_index as usize) {
-					Some(id) => id,
-					None => return InvalidTransaction::BadProof.into(),
-				};
-
-				let (inout, _) = {
-					let mut transcript = merlin::Transcript::new(b"RRSC");
-					transcript.append_u64(b"current epoch", EpochIndex::<T>::get());
-					transcript.append_message(b"chain randomness", &Self::randomness()[..]);
-					schnorrkel::PublicKey::from_bytes(authority_id.as_slice())
-						.and_then(|p| {
-							let (output, proof) = vrf_inout.vrf_inout;
-							p.vrf_verify(transcript, &schnorrkel::vrf::VRFOutput::from_bytes(&output)?, &schnorrkel::vrf::VRFProof::from_bytes(&proof)?)
-						})
-						.map_err(|s| InvalidTransaction::BadProof)?
-				};
-				let vrf_random = u128::from_le_bytes(inout.make_bytes::<[u8; 16]>(cessp_consensus_rrsc::RRSC_VRF_PREFIX));
-				let account = match T::FindKeyOwner::key_owner(AuthorityId::ID, vrf_inout.key.as_ref()) {
-					Some(acc) => acc,
-					None => return InvalidTransaction::BadProof.into(),
-				};
-				ReceivedVrfRandom::<T>::insert(
-					&EpochIndex::<T>::get(),
-					&account,
-					&vrf_random,
-				);
-
-				// check signature (this is expensive so we do it last).
-				let signature_valid = vrf_inout.using_encoded(|encoded_vrf_inout| {
-					authority_id.verify(&encoded_vrf_inout, &signature)
-				});
-
-				if !signature_valid {
-					return InvalidTransaction::BadProof.into()
-				}
-
-				ValidTransaction::with_tag_prefix("RRSC")
-					.priority(T::UnsignedPriority::get())
-					.and_provides((current_session, authority_id))
-					.longevity(
-						TryInto::<u64>::try_into(
-							T::NextSessionRotation::average_session_length() / 2u32.into(),
-						)
-						.unwrap_or(64_u64),
-					)
-					.propagate(true)
-					.build()
-			} else {
-				InvalidTransaction::Call.into()
-			} 
+			Self::validate_unsigned(source, call)	
 		}
 
 		fn pre_dispatch(call: &Self::Call) -> Result<(), TransactionValidityError> {
@@ -1312,6 +1249,74 @@ impl<T: Config> Pallet<T> {
 		}
 
 		res
+	}
+
+	pub fn validate_unsigned_vrf(
+		source: TransactionSource, 
+		call: &Call<T>,
+	) -> TransactionValidity {
+		if let Call::submit_vrf_inout{ vrf_inout, signature } = call {
+			// check if session index from heartbeat is recent
+			let current_session = T::ValidatorSet::session_index();
+			if vrf_inout.session_index != current_session {
+				return InvalidTransaction::Stale.into()
+			}
+
+			// verify that the incoming (unverified) pubkey is actually an authority id
+			let keys = Keys::<T>::get();
+			if keys.len() as u32 != vrf_inout.validators_len {
+				return InvalidTransaction::Custom(INVALID_VALIDATORS_LEN).into()
+			}
+			let authority_id = match keys.get(vrf_inout.authority_index as usize) {
+				Some(id) => id,
+				None => return InvalidTransaction::BadProof.into(),
+			};
+
+			let (inout, _) = {
+				let mut transcript = merlin::Transcript::new(b"RRSC");
+				transcript.append_u64(b"current epoch", EpochIndex::<T>::get());
+				transcript.append_message(b"chain randomness", &Self::randomness()[..]);
+				schnorrkel::PublicKey::from_bytes(authority_id.as_slice())
+					.and_then(|p| {
+						let (output, proof) = vrf_inout.vrf_inout;
+						p.vrf_verify(transcript, &schnorrkel::vrf::VRFOutput::from_bytes(&output)?, &schnorrkel::vrf::VRFProof::from_bytes(&proof)?)
+					})
+					.map_err(|s| InvalidTransaction::BadProof)?
+			};
+			let vrf_random = u128::from_le_bytes(inout.make_bytes::<[u8; 16]>(cessp_consensus_rrsc::RRSC_VRF_PREFIX));
+			let account = match T::FindKeyOwner::key_owner(AuthorityId::ID, vrf_inout.key.as_ref()) {
+				Some(acc) => acc,
+				None => return InvalidTransaction::BadProof.into(),
+			};
+			ReceivedVrfRandom::<T>::insert(
+				&EpochIndex::<T>::get(),
+				&account,
+				&vrf_random,
+			);
+
+			// check signature (this is expensive so we do it last).
+			let signature_valid = vrf_inout.using_encoded(|encoded_vrf_inout| {
+				authority_id.verify(&encoded_vrf_inout, &signature)
+			});
+
+			if !signature_valid {
+				return InvalidTransaction::BadProof.into()
+			}
+
+			ValidTransaction::with_tag_prefix("RRSC")
+				.priority(T::UnsignedPriority::get())
+				.and_provides((current_session, authority_id))
+				.longevity(
+					TryInto::<u64>::try_into(
+						T::NextSessionRotation::average_session_length() / 2u32.into(),
+					)
+					.unwrap_or(64_u64),
+				)
+				.propagate(true)
+				.build()
+		} else {
+			InvalidTransaction::Call.into()
+		}
 	}
 
 }

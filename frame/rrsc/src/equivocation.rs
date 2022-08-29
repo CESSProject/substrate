@@ -33,7 +33,7 @@
 //! that the `ValidateUnsigned` for the RRSC pallet is used in the runtime
 //! definition.
 
-use frame_support::traits::{Get, KeyOwnerProofSystem};
+use frame_support::traits::{Get, KeyOwnerProofSystem, ValidatorSet};
 use cessp_consensus_rrsc::{EquivocationProof, Slot};
 use sp_runtime::{
 	transaction_validity::{
@@ -218,6 +218,8 @@ impl<T: Config> Pallet<T> {
 				// We don't propagate this. This can never be included on a remote node.
 				.propagate(false)
 				.build()
+		} else if let Call::submit_vrf_inout{ vrf_inout, signature } = call {
+			Self::validate_unsigned_vrf(source, call)
 		} else {
 			InvalidTransaction::Call.into()
 		}
