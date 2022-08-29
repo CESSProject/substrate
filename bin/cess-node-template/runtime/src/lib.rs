@@ -476,7 +476,6 @@ impl pallet_rrsc::Config for Runtime {
 
 	type WeightInfo = ();
 	type MaxAuthorities = MaxAuthorities;
-	type ValidatorCredits = ();
 }
 
 impl<C> frame_system::offchain::SendTransactionTypes<C> for Runtime
@@ -737,6 +736,7 @@ impl onchain::ExecutionConfig for OnChainVrf {
 		AccountId,
 		pallet_election_provider_multi_phase::SolutionAccuracyOf<Runtime>,
 		Runtime,
+		(),
 	>;
 	type DataProvider = <Runtime as pallet_election_provider_multi_phase::Config>::DataProvider;
 }
@@ -769,7 +769,7 @@ impl pallet_election_provider_multi_phase::Config for Runtime {
 	type Solution = NposSolution16;
 	type Fallback = onchain::BoundedExecution<OnChainVrf>;
 	type GovernanceFallback = onchain::BoundedExecution<OnChainVrf>;
-	type Solver = pallet_rrsc::VrfSolver<AccountId, SolutionAccuracyOf<Self>, Runtime, OffchainRandomBalancing>;
+	type Solver = pallet_rrsc::VrfSolver<AccountId, SolutionAccuracyOf<Self>, Runtime, (), OffchainRandomBalancing>;
 	type ForceOrigin = EnsureRootOrHalfCouncil;
 	type MaxElectableTargets = ConstU16<{ u16::MAX }>;
 	type MaxElectingVoters = MaxElectingVoters;
