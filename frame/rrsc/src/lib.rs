@@ -53,10 +53,8 @@ use cessp_consensus_rrsc::{
 	ConsensusLog, Epoch, EquivocationProof, RRSCAuthorityWeight, RRSCEpochConfiguration, Slot,
 	RRSC_ENGINE_ID,
 };
-// use schnorrkel::{keys::PublicKey, vrf::VRFInOut};
 use sp_consensus_vrf::schnorrkel as sp_schnorrkel;
 
-// use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
 pub use cessp_consensus_rrsc::{
 	AuthorityId, PUBLIC_KEY_LENGTH, RANDOMNESS_LENGTH, VRF_OUTPUT_LENGTH,
 };
@@ -279,9 +277,6 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxAuthorities: Get<u32>;
 
-		/// The maximum number of keys that can be added.
-		type MaxKeys: Get<u32>;
-
 		/// The overarching event type.
 		type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
 
@@ -455,12 +450,6 @@ pub mod pallet {
 	#[pallet::storage]
 	pub(super) type NextEpochConfig<T> = StorageValue<_, RRSCEpochConfiguration>;
 
-	/// The current set of keys that may issue a heartbeat.
-	#[pallet::storage]
-	#[pallet::getter(fn keys)]
-	pub(crate) type Keys<T: Config> =
-		StorageValue<_, WeakBoundedVec<AuthorityId, T::MaxKeys>, ValueQuery>;
-
 	/// For each session index, we keep a mapping of `SessionIndex` and `AuthIndex` to
 	/// `WrapperOpaque<BoundedOpaqueNetworkState>`.
 	#[pallet::storage]
@@ -523,7 +512,6 @@ pub mod pallet {
 			EpochConfig::<T>::put(
 				self.epoch_config.clone().expect("epoch_config must not be None"),
 			);
-			Pallet::<T>::initialize_keys(&self.keys);
 		}
 	}
 
@@ -634,10 +622,10 @@ pub mod pallet {
 			let current_session = T::ValidatorSet::session_index();
 			let exists =
 				ReceivedVrfInOut::<T>::contains_key(&current_session, &vrf_inout.authority_index);
-			let keys = Keys::<T>::get();
+			let keys = Authorities::<T>::get();
 			let public = keys.get(vrf_inout.authority_index as usize);
 			if let (false, Some(public)) = (exists, public) {
-				Self::deposit_event(Event::<T>::VrfInOutReceived { authority_id: public.clone() });
+				Self::deposit_event(Event::<T>::VrfInOutReceived { authority_id: public.0.clone() });
 
 				ReceivedVrfInOut::<T>::insert(
 					&current_session,
@@ -1083,15 +1071,6 @@ impl<T: Config> Pallet<T> {
 		.ok()
 	}
 
-	fn initialize_keys(keys: &[AuthorityId]) {
-		if !keys.is_empty() {
-			assert!(Keys::<T>::get().is_empty(), "Keys are already initialized!");
-			let bounded_keys = <BoundedSlice<'_, _, T::MaxKeys>>::try_from(keys)
-				.expect("More than the maximum number of keys provided");
-			Keys::<T>::put(bounded_keys);
-		}
-	}
-
 	pub(crate) fn build_and_send_vrf_inout(
 		block_number: T::BlockNumber,
 	) -> OffchainResult<T, impl Iterator<Item = OffchainResult<T, ()>>> {
@@ -1099,7 +1078,7 @@ impl<T: Config> Pallet<T> {
 		const START_VRF_FINAL_PERIOD: Permill = Permill::from_percent(80);
 
 		let session_index = T::ValidatorSet::session_index();
-		let validators_len = Keys::<T>::decode_len().unwrap_or_default() as u32;
+		let validators_len = Authorities::<T>::decode_len().unwrap_or_default() as u32;
 
 		let random_choice = |progress: Permill| {
 			// given session progress `p` and session length `l`
@@ -1263,7 +1242,7 @@ impl<T: Config> Pallet<T> {
 			}
 
 			// verify that the incoming (unverified) pubkey is actually an authority id
-			let keys = Keys::<T>::get();
+			let keys = Authorities::<T>::get();
 			if keys.len() as u32 != vrf_inout.validators_len {
 				return InvalidTransaction::Custom(INVALID_VALIDATORS_LEN).into()
 			}
@@ -1276,7 +1255,7 @@ impl<T: Config> Pallet<T> {
 				let mut transcript = merlin::Transcript::new(b"RRSC");
 				transcript.append_u64(b"current epoch", EpochIndex::<T>::get());
 				transcript.append_message(b"chain randomness", &Self::randomness()[..]);
-				schnorrkel::PublicKey::from_bytes(authority_id.as_slice())
+				schnorrkel::PublicKey::from_bytes(authority_id.0.as_slice())
 					.and_then(|p| {
 						let (output, proof) = vrf_inout.vrf_inout;
 						p.vrf_verify(transcript, &schnorrkel::vrf::VRFOutput::from_bytes(&output)?, &schnorrkel::vrf::VRFProof::from_bytes(&proof)?)
@@ -1296,7 +1275,7 @@ impl<T: Config> Pallet<T> {
 
 			// check signature (this is expensive so we do it last).
 			let signature_valid = vrf_inout.using_encoded(|encoded_vrf_inout| {
-				authority_id.verify(&encoded_vrf_inout, &signature)
+				authority_id.0.verify(&encoded_vrf_inout, &signature)
 			});
 
 			if !signature_valid {
@@ -1397,17 +1376,6 @@ impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 				A runtime configuration adjustment may be needed.",
 			),
 		);
-
-		let keys = authorities.into_iter().map(|x| x.0).collect::<Vec<_>>();
-
-		let bounded_keys = WeakBoundedVec::<_, T::MaxKeys>::force_from(
-			keys.to_vec(),
-			Some(
-				"Warning: The session has more keys than expected. \
-  				A runtime configuration adjustment may be needed.",
-			),
-		);
-		Keys::<T>::put(bounded_keys);
 
 		let next_authorities = queued_validators.map(|(_account, k)| (k, 1)).collect::<Vec<_>>();
 		let next_bounded_authorities = WeakBoundedVec::<_, T::MaxAuthorities>::force_from(

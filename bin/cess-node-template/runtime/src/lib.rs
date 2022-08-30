@@ -477,7 +477,6 @@ impl pallet_rrsc::Config for Runtime {
 	type WeightInfo = ();
 	type MaxAuthorities = MaxAuthorities;
 
-	type MaxKeys = MaxKeys;
 	type Event = Event;
 	type ValidatorSet = Historical;
 	type FindKeyOwner = Session;
