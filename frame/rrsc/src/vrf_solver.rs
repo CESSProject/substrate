@@ -32,7 +32,7 @@ impl<
 		
 		let credits = Credits::credits(EpochIndex::<T>::get());
 		let full_credit = Credits::full_credit();
-		// final_score = `random_score` * 80% + `credit` * 20%
+		// final_score = `random_score` * 20% + `credit` * 80%
 		let mut account_scores: Vec<(AccountId, u32)> = targets
 			.into_iter()
 			.enumerate()
@@ -43,9 +43,17 @@ impl<
 					Some(c) => *c,
 					None => 0,
 				};
-				let final_score = random_score.saturating_mul(8)
-							.saturating_add(credit.saturating_mul(2))
+				let final_score = random_score.saturating_mul(2)
+							.saturating_add(credit.saturating_mul(8))
 							.saturating_div(10);
+				log::info!(
+					target: "runtime::rrsc::vrf_solver",
+					"account: {:?}, random_score: {:?}, credit: {:?}, final_score: {:?}",
+					account_id,
+					random_score,
+					credit,
+					final_score,
+				);
 				(account_id, final_score)
 			})
 			.collect();
