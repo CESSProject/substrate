@@ -46,7 +46,7 @@ impl<
 				let final_score = random_score.saturating_mul(2)
 							.saturating_add(credit.saturating_mul(8))
 							.saturating_div(10);
-				log::info!(
+				log::debug!(
 					target: "runtime::rrsc::vrf_solver",
 					"account: {:?}, random_score: {:?}, credit: {:?}, final_score: {:?}",
 					account_id,
@@ -88,12 +88,11 @@ Balancing: Get<Option<(usize, ExtendedBalance)>>,
 		let mut b_context = context.to_string();
 		b_context.push_str(authority_index.to_string().as_str());
 		let (hash, _) = CurrentBlockRandomness::<T>::random(&b_context.as_bytes());
-		log::info!("{:?} Before Hash:: {:?}", b_context, hash);
 		let hash = 	match hash {
 				Some(h) => h,
 				None => T::Hash::default(),
 		};
-		log::info!("{:?} Hash:: {:?}", b_context, hash);
+		log::debug!("{:?} Hash:: {:?}", b_context, hash);
 		let random_number = u32::decode(&mut hash.as_ref())
 								.expect("secure hashes should always be bigger than u32; qed");
 		random_number

@@ -66,7 +66,7 @@ pub type AuthoritySignature = app::Signature;
 pub type AuthorityId = app::Public;
 
 /// The `ConsensusEngineId` of RRSC.
-pub const RRSC_ENGINE_ID: ConsensusEngineId = *b"RRSC";
+pub const RRSC_ENGINE_ID: ConsensusEngineId = *b"BABE";
 
 /// The length of the public key
 pub const PUBLIC_KEY_LENGTH: usize = 32;
