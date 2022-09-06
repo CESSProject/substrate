@@ -151,9 +151,22 @@ fn check_primary_header<B: BlockT + Sized>(
 	epoch: &Epoch,
 	c: (u64, u64),
 ) -> Result<(), Error<B>> {
+	let slot_autority_index = *pre_digest.slot as usize % epoch.authorities.len();
+	let expected_author = &epoch.authorities[slot_autority_index].0;
+
 	let author = &epoch.authorities[pre_digest.authority_index as usize].0;
 	
+	if expected_author != author {
+		return Err(Error::InvalidAuthor(expected_author.clone(), author.clone()))
+	}
+
 	if AuthorityPair::verify(&signature, pre_hash, &author) {
+		let transcript = make_transcript(&epoch.randomness, pre_digest.slot, epoch.epoch_index);
+
+		schnorrkel::PublicKey::from_bytes(author.as_slice())
+			.and_then(|p| p.vrf_verify(transcript, &pre_digest.vrf_output, &pre_digest.vrf_proof))
+			.map_err(|s| rrsc_err(Error::VRFVerificationFailed(s)))?;
+
 		Ok(())
 	} else {
 		Err(rrsc_err(Error::BadSignature(pre_hash)))
