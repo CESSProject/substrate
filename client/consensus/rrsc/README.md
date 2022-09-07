@@ -28,6 +28,8 @@ In every slot, each validator "rolls a die". They execute a function (the VRF) t
 
 ● The slot number.
 
+# ![Figure 1](https://raw.githubusercontent.com/CESSProject/W3F-illustration/main/rrsc/image.png)
+
 The output is two values: a RESULT (the random value) and a PROOF (a proof that the random value was generated correctly).
 
 The RESULT is then compared to a threshold defined in the implementation of the protocol (specifically, in the Polkadot Host). If the value is less than the threshold, then the validator who rolled this number is a viable block production candidate for that slot. The validator then attempts to create a block and submits this block into the network along with the previously obtained PROOF and RESULT. Under VRF, every validator rolls a number for themselves, checks it against a threshold, and produces a block if the random roll is under that threshold.
@@ -36,19 +38,82 @@ The astute reader will notice that due to the way this works, some slots may hav
 
 ## Random Rotational Selection(R²S)
 
-The Random Rotational Selection consensus selects a set of validators (11 to be exact) every 24 hours using the VRF function and amount of nominator stake backing up the validators. These 11 validators will generate blocks in a round-robin fashion for the next 24 hours till the next set of validators are selected.
+### 1.1 Definitions
 
-The R²S is different from BABE in that it eliminates Forking. By randomly selecting 11 validators from a pool of validators we allow every node to have equal opportunity to be part of the consensus and incentives for the numbers of valid blocks they generate.
+- **Slot**: Each slot will generate a new block, that is, the block out time. In the cess test network, 1 slot = 6 seconds.
 
-The process is as follows: -
-1. All validators will run the VRF function to determine the current 11 validator nodes that will generate blocks for next 24 hours.
+- **Epoch**: A collection of fixed length slots. Each epoch will update the set of rotation nodes, but not every epoch will trigger the election. The election will be triggered in the first block from the sixth epoch of era. 1 epoch = 1 hour in the cess testnet.
 
-2. If there are more than 11 validators, the first 11 with most stake will be selected.
+- **Era**: A collection of multiple epochs. Era starts the new rotation node set in the first block, and settles the consensus award of the previous era. In the cess testnet, 1 era = 6 epoch, that is, 6 hours.
 
-3. If there are less than 11 validators, the remaining validators will run a second round of VRF function and join the validators of first round to make a total of 11. 
+### 1.2 Overall process
 
-4. The above 3 steps will be repeated every 24 hours.
+1. The node has become a consensus node through pledge and registration, and the current pledge amount is 1 million.
 
-The 11 validators will generate blocks in a round robin fashion. There is a possibility of a node failing to generate block at a specific time. This will result in slashing(Penalty to the validator who does not validating blocks in time).
+2. In each round of era, the validators are rotated. The rotation rule is score ranking. The 11 nodes with the highest scores (4 in the cess testnet) are selected as the validators of era.
 
-In case of a validator node being slashed of all of it's stake, the validator will be removed from the validator sets, and that slot will either be needed to be covered by secondery validators or no block is generated during that slot.
+3. The final score is determined by reputation score and random score, that is, final score = `(reputation score * 80%) + (random score * 20%)`.
+
+4. Please refer to the next section for credit score calculation, and the random score is determined by VRF.
+
+5. Waiting for the next era to continue the next round of election.
+
+### 1.3 Reputation model
+
+As each consensus node that joins the cess network needs to maintain the network state, it also needs to undertake the work of storage data scheduling. In order to encourage consensus nodes to do more such work, we designed a reputation model. In our model, each consensus node has a reputation score, which is directly determined by the workload of the scheduler. Specifically, it includes the following items:
+
+1. Total bytes of idle segment processed.
+
+2. Total of bytes of service segment processed.
+
+3. Number of penalties for random challenge timeout of verification file.
+
+Reputation value calculation as follow:
+
+`Scheduler reputation value = 1000 * processing bytes ratio - (10 * penalty times)`
+
+### 1.4 Code Walkthrough
+
+#### 1. The election
+
+final_score = `random_score` * 20% + `credit` * 80%
+
+The final score of the node is composed of two parts, random score accounting for 20% of the weight and reputation score accounting for 80% of the weight. Arrange according to the scores from large to small, and select no more than 11 nodes with the highest scores as the rotation nodes.
+
+https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f456e802/frame/rrsc/src/vrf_solver.rs#L36
+
+#### 2. The random scores
+
+- Use the `currentblockrandomness` random function to calculate a random hash value for each node.
+
+https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f456e802/frame/rrsc/src/vrf_solver.rs#L87
+
+- Convert random hash value to U32 type value.
+
+- Modulo the full score of reputation score with U32 type value to obtain random score.
+
+- During the production of each block, the vrfoutput obtained by executing the VRF function is written into the block header.
+
+https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f456e802/client/consensus/rrsc/src/authorship.rs#L194
+
+- When each block is initialized, vrfoutput is taken from the block header, converted into randomness, and stored in the authorvrrandomness of pallet rrsc as the seed for running the random function in the current block
+
+https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f456e802/frame/rrsc/src/lib.rs#L749
+
+- Randomness stored in authorvrrandomness is used as seed, and random hash value is obtained through byte array inversion, splicing and hash operation.
+
+https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f456e802/frame/rrsc/src/randomness.rs#L136
+
+#### 3. Reputation scores
+
+Obtain reputation scores of all candidate nodes during election
+
+https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f456e802/frame/rrsc/src/vrf_solver.rs#L33
+
+#### 4. Block generation
+
+- Rotation nodes take turns to output blocks.
+
+- Modulo the number of rotation nodes with the slot serial number, and take the modulo value as the node taken from the subscript of the rotation node list, which is the block out node of this slot. Slot numbers are cumulative, so the out of block nodes take turns.
+
+https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f456e802/client/consensus/rrsc/src/authorship.rs#L180
