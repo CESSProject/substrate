@@ -88,13 +88,15 @@ final_score = `random_score` * 20% + `credit` * 80%
 
 The final score of the node is composed of two parts, random score accounting for 20% of the weight and reputation score accounting for 80% of the weight. Arrange according to the scores from large to small, and select no more than 11 nodes with the highest scores as the rotation nodes.
 
-https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f456e802/frame/rrsc/src/vrf_solver.rs#L36
+https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f456e802/frame/rrsc/src/vrf_solver.rs#L46-L48
+
+https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f456e802/frame/rrsc/src/vrf_solver.rs#L61-L62
 
 #### 2. The random scores
 
 - Use the `currentblockrandomness` random function to calculate a random hash value for each node.
 
-https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f456e802/frame/rrsc/src/vrf_solver.rs#L87
+https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f456e802/frame/rrsc/src/vrf_solver.rs#L87-L99
 
 - Convert random hash value to U32 type value.
 
@@ -102,7 +104,7 @@ https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f4
 
 - During the production of each block, the vrfoutput obtained by executing the VRF function is written into the block header.
 
-https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f456e802/client/consensus/rrsc/src/authorship.rs#L194
+https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f456e802/client/consensus/rrsc/src/authorship.rs#L185-L199
 
 - When each block is initialized, vrfoutput is taken from the block header, converted into randomness, and stored in the authorvrrandomness of pallet rrsc as the seed for running the random function in the current block
 
@@ -110,7 +112,7 @@ https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f4
 
 - Randomness stored in authorvrrandomness is used as seed, and random hash value is obtained through byte array inversion, splicing and hash operation.
 
-https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f456e802/frame/rrsc/src/randomness.rs#L136
+https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f456e802/frame/rrsc/src/randomness.rs#L136-L148
 
 #### 3. Reputation scores
 
@@ -124,7 +126,7 @@ https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f4
 
 - Modulo the number of rotation nodes with the slot serial number, and take the modulo value as the node taken from the subscript of the rotation node list, which is the block out node of this slot. Slot numbers are cumulative, so the out of block nodes take turns.
 
-https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f456e802/client/consensus/rrsc/src/authorship.rs#L180
+https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f456e802/client/consensus/rrsc/src/authorship.rs#L180-L181
 
 ### 1.5 Future work
 
