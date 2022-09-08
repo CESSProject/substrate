@@ -64,7 +64,7 @@ R²S is an important part of CESS protocol. Compared with the polkadot consensus
 
 7. The last epoch of each era starts the validators election of the next era.
 
-# ![Figure 2](https://raw.githubusercontent.com/CESSProject/W3F-illustration/main/rrsc/image1.png)
+<img src="https://raw.githubusercontent.com/CESSProject/W3F-illustration/main/rrsc/image1.png" width = "600" alt="name" align=center />
 
 ### 1.3 Reputation model
 
