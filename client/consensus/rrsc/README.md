@@ -48,6 +48,8 @@ The astute reader will notice that due to the way this works, some slots may hav
 
 ### 1.2 Overall process
 
+R²S is an important part of CESS protocol. Compared with the polkadot consensus mechanism, R²S pays more attention to the process of node election and block generation. The following is the overall process:
+
 1. The node has become a consensus node through pledge and registration, and the current pledge amount is 1 million.
 
 2. In each round of era, the validators are rotated. The rotation rule is score ranking. The 11 nodes with the highest scores (4 in the cess testnet) are selected as the validators of era.
@@ -56,7 +58,13 @@ The astute reader will notice that due to the way this works, some slots may hav
 
 4. Please refer to the next section for credit score calculation, and the random score is determined by VRF.
 
-5. Waiting for the next era to continue the next round of election.
+5. The selected validators generate blocks in sequence.
+
+6. The current way of confirming blocks is the same as GRANDPA.
+
+7. The last epoch of each era starts the validators election of the next era.
+
+# ![Figure 2](https://raw.githubusercontent.com/CESSProject/W3F-illustration/main/rrsc/image1.png)
 
 ### 1.3 Reputation model
 
@@ -117,3 +125,13 @@ https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f4
 - Modulo the number of rotation nodes with the slot serial number, and take the modulo value as the node taken from the subscript of the rotation node list, which is the block out node of this slot. Slot numbers are cumulative, so the out of block nodes take turns.
 
 https://github.com/CESSProject/substrate/blob/6f338348a5488f56fd338ab678d57e30f456e802/client/consensus/rrsc/src/authorship.rs#L180
+
+### 1.5 Future work
+
+Consensus is the foundation of the blockchain network, and it is necessary for us to continuously optimize it. At this stage, we have completed the realization of the core functions. But this is far from enough, and there are still many points that need to be improved in the future.
+
+1. Adjust consensus-related RPC interfaces to adapt to applications such as block explorers.
+
+2. According to the actual test situation, the reputation model is continuously iterated to make it more perfect.
+
+3. A more concrete theoretical security analysis will be conducted.
