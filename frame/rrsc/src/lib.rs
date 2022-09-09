@@ -1394,6 +1394,15 @@ impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 		Self::enact_epoch_change(bounded_authorities, next_bounded_authorities)
 	}
 
+	fn on_before_session_ending() {
+		// Remove all received vrf random from the last epoch,
+		// they won't be needed anymore.
+		let epoch_index = EpochIndex::<T>::get();
+		if epoch_index > 0 {
+			ReceivedVrfRandom::<T>::remove_prefix(&epoch_index.saturating_sub(1), None);
+		}
+	}
+
 	fn on_disabled(i: u32) {
 		Self::deposit_consensus(ConsensusLog::OnDisabled(i))
 	}
