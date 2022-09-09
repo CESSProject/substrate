@@ -743,7 +743,10 @@ pub mod pallet {
 		// }
 		//Available space divided by 1024 is the unit price
 		fn get_price() -> u128 {
-			let space = pallet_sminer::Pallet::<T>::get_space();
+			let mut space = pallet_sminer::Pallet::<T>::get_space();
+			if (space < 1) {
+				space = 1;
+			}
 			let price: u128 = 1024 * 1_000_000_000_000 * 1000 / space ;
 			price
 		}
