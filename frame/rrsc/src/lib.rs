@@ -539,7 +539,20 @@ pub mod pallet {
 		}
 
 		fn offchain_worker(block_number: BlockNumberFor<T>) {
-			
+			log::info!("offchain_worker");
+
+			// JC: Just to test regular tx will be processed
+			if (block_number % 4u32.into()).is_zero() {
+				let call = Call::regular_tx{};
+
+				log::info!("  L send test offchain tx");
+
+				SubmitTransaction::<T, Call<T>>::submit_unsigned_transaction(call.into())
+					.map_err(|_| {
+						log::error!("Failed to send test offchain_unsigned_tx");
+					});
+			}
+
 			for res in Self::build_and_send_vrf_inout(block_number).into_iter().flatten() {
 				if let Err(e) = res {
 					log::debug!(
@@ -612,12 +625,24 @@ pub mod pallet {
 			Ok(())
 		}
 
+		#[pallet::weight(10000)]
+		pub fn regular_tx(origin: OriginFor<T>) -> DispatchResult {
+			ensure_none(origin)?;
+
+			log::info!("-- test offchain tx called onchain!!! --");
+
+			Ok(())
+		}
+
 		#[pallet::weight(0)]
 		pub fn submit_vrf_inout(
 			origin: OriginFor<T>,
 			vrf_inout: VrfInOut<T::BlockNumber>,
 			_signature: <cessp_consensus_rrsc::AuthorityId as RuntimeAppPublic>::Signature,
 		) -> DispatchResult {
+
+			log::info!("-- submit_vrf_inout --");
+
 			ensure_none(origin)?;
 			let current_session = T::ValidatorSet::session_index();
 			let exists =
@@ -1102,6 +1127,8 @@ impl<T: Config> Pallet<T> {
 		let session_index = T::ValidatorSet::session_index();
 		let validators_len = Authorities::<T>::decode_len().unwrap_or_default() as u32;
 
+		log::info!("  L build_and_send_vrf_inout in block: {:?}", block_number);
+
 		let random_choice = |progress: Permill| {
 			// given session progress `p` and session length `l`
 			// the threshold formula is: p^6 + 1/l
@@ -1149,6 +1176,8 @@ impl<T: Config> Pallet<T> {
 		block_number: T::BlockNumber,
 		validators_len: u32,
 	) -> OffchainResult<T, ()> {
+
+		log::info!("  L send_vrf_inout with key: {:?}", key);
 
 		let local_keys = AuthorityId::all();
 		let authority_index = match local_keys.iter().position(|k| *k == key) {
@@ -1256,6 +1285,9 @@ impl<T: Config> Pallet<T> {
 		source: TransactionSource, 
 		call: &Call<T>,
 	) -> TransactionValidity {
+
+		log::info!("-- validate_unsigned_vrf --");
+
 		if let Call::submit_vrf_inout{ vrf_inout, signature } = call {
 			// check if session index from heartbeat is recent
 			let current_session = T::ValidatorSet::session_index();
@@ -1286,6 +1318,8 @@ impl<T: Config> Pallet<T> {
 				Some(acc) => acc,
 				None => return InvalidTransaction::BadProof.into(),
 			};
+
+			log::info!("  L returning a ValidTransaction");
 
 			ValidTransaction::with_tag_prefix("RRSC")
 				.priority(T::UnsignedPriority::get())

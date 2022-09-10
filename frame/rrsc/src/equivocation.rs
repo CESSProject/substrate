@@ -189,6 +189,8 @@ impl<T: Config> Pallet<T> {
 		source: TransactionSource, 
 		call: &Call<T>,
 	) -> TransactionValidity {
+		log::info!("-- validate_unsigned --");
+
 		if let Call::report_equivocation_unsigned { equivocation_proof, key_owner_proof } = call {
 			// discard equivocation report not coming from the local node
 			match source {
@@ -220,6 +222,16 @@ impl<T: Config> Pallet<T> {
 				.build()
 		} else if let Call::submit_vrf_inout{ vrf_inout, signature } = call {
 			Self::validate_unsigned_vrf(source, call)
+		} else if let Call::regular_tx{} = call {
+
+			log::info!("  L returning ValidTransaction for test offchain tx");
+
+			ValidTransaction::with_tag_prefix("RRSC-TestTx")
+				.priority(TransactionPriority::max_value())
+				.and_provides({})
+				.longevity(10)
+				.propagate(false)
+				.build()
 		} else {
 			InvalidTransaction::Call.into()
 		}
