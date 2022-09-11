@@ -218,7 +218,7 @@ impl<T: Config> Pallet<T> {
 				// We don't propagate this. This can never be included on a remote node.
 				.propagate(false)
 				.build()
-		} else if let Call::submit_vrf_inout{ vrf_inout, signature } = call {
+		} else if let Call::submit_vrf_inout{..} = call {
 			Self::validate_unsigned_vrf(source, call)
 		} else {
 			InvalidTransaction::Call.into()
@@ -226,10 +226,12 @@ impl<T: Config> Pallet<T> {
 	}
 
 	pub fn pre_dispatch(call: &Call<T>) -> Result<(), TransactionValidityError> {
-		if let Call::report_equivocation_unsigned { equivocation_proof, key_owner_proof } = call {
-			is_known_offence::<T>(equivocation_proof, key_owner_proof)
-		} else {
-			Err(InvalidTransaction::Call.into())
+		match call {
+			Call::report_equivocation_unsigned { equivocation_proof, key_owner_proof } =>
+				is_known_offence::<T>(equivocation_proof, key_owner_proof),
+			Call::submit_vrf_inout {..} =>
+				Ok(()),
+			_ => Err(InvalidTransaction::Call.into()),
 		}
 	}
 }

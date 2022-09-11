@@ -542,7 +542,7 @@ pub mod pallet {
 			
 			for res in Self::build_and_send_vrf_inout(block_number).into_iter().flatten() {
 				if let Err(e) = res {
-					log::debug!(
+					log::info!(
 						target: "runtime::rrsc",
 						"Skipping vrf at {:?}: {:?}",
 						block_number,
@@ -612,12 +612,13 @@ pub mod pallet {
 			Ok(())
 		}
 
-		#[pallet::weight(0)]
+		#[pallet::weight(100)]
 		pub fn submit_vrf_inout(
 			origin: OriginFor<T>,
 			vrf_inout: VrfInOut<T::BlockNumber>,
 			_signature: <cessp_consensus_rrsc::AuthorityId as RuntimeAppPublic>::Signature,
 		) -> DispatchResult {
+			log::info!("submit_vrf_inout");
 			ensure_none(origin)?;
 			let current_session = T::ValidatorSet::session_index();
 			let exists =
@@ -664,9 +665,9 @@ pub mod pallet {
 		}
 	}
 
-	/// Invalid transaction custom error. Returned when validators_len field in heartbeat is
-	/// incorrect.
-	pub(crate) const INVALID_VALIDATORS_LEN: u8 = 10;
+	// Invalid transaction custom error. Returned when validators_len field in heartbeat is
+	// incorrect.
+	// pub(crate) const INVALID_VALIDATORS_LEN: u8 = 10;
 
 	#[pallet::validate_unsigned]
 	impl<T: Config> ValidateUnsigned for Pallet<T> {
@@ -1191,6 +1192,14 @@ impl<T: Config> Pallet<T> {
 			SubmitTransaction::<T, Call<T>>::submit_unsigned_transaction(call.into())
 				.map_err(|_| OffchainErr::SubmitTransaction)?;
 
+			let epoch_index = EpochIndex::<T>::get();
+			let account = match T::FindKeyOwner::key_owner(AuthorityId::ID, key.as_ref()) {
+				Some(acc) => acc,
+				None => return Err(OffchainErr::NoKeys)?,
+			};
+
+			let r = Self::received_vrf_random(epoch_index, &account); 
+			log::info!("received_vrf_random: {:?}", r);
 			Ok(())
 		})
 	}
