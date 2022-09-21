@@ -5,7 +5,7 @@ use sp_npos_elections::{
 	ElectionResult, ExtendedBalance, IdentifierT, PerThing128, VoteWeight,
 };
 use frame_support::traits::Randomness;
-use super::{Config, CurrentBlockRandomness};
+use super::{Config, CurrentBlockRandomness, EpochIndex, ReceivedVrfRandom};
 use codec::alloc::string::ToString;
 
 /// A wrapper for [`sp_npos_elections::seq_phragmen`] that implements [`NposSolver`].
@@ -30,10 +30,17 @@ impl<
 	) -> Result<ElectionResult<Self::AccountId, Self::Accuracy>, Self::Error> {
 		let to_elect = winners;
 		
+		let epoch_index = EpochIndex::<T>::get();
 		let mut account_index_hash = vec![];
 		for (account_index, account_id) in targets.into_iter().enumerate() {
-			let hash = Self::random_hash("authorities", &account_index);
-			account_index_hash.push((account_id, hash));
+			// let hash = Self::random_hash("authorities", &account_index);
+			let vrf_random = match epoch_index {
+				0 => 0u128,
+				_ => ReceivedVrfRandom::<T>::get(&epoch_index.saturating_sub(1), &account_id)
+						.or_else(|| Some(u128::max_value()))
+						.unwrap(),
+			};
+			account_index_hash.push((account_id, vrf_random));
 		}
 
 		account_index_hash.sort_by_key(|h| h.1);
