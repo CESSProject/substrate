@@ -37,8 +37,7 @@ impl<
 			let vrf_random = match epoch_index {
 				0 => 0u128,
 				_ => ReceivedVrfRandom::<T>::get(&epoch_index.saturating_sub(1), &account_id)
-						.or_else(|| Some(u128::max_value()))
-						.unwrap(),
+						.unwrap_or(u128::max_value()),
 			};
 			account_index_hash.push((account_id, vrf_random));
 		}
