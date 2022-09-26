@@ -450,20 +450,6 @@ pub mod pallet {
 	#[pallet::storage]
 	pub(super) type NextEpochConfig<T> = StorageValue<_, RRSCEpochConfiguration>;
 
-	/// For each session index, we keep a mapping of `SessionIndex` and `AuthIndex` to
-	/// `WrapperOpaque<BoundedOpaqueNetworkState>`.
-	#[pallet::storage]
-	#[pallet::getter(fn received_vrf_inout)]
-	pub(crate) type ReceivedVrfInOut<T: Config> = StorageDoubleMap<
-		_,
-		Twox64Concat,
-		SessionIndex,
-		Twox64Concat,
-		AuthIndex,
-		WrapperOpaque<
-			VrfInOut<T::BlockNumber>,
-		>,
-	>;
 
 	/// For each epoch index, we keep a mapping of `EpochIndex` and `AccountId` to
 	/// `VrfRandom`.
@@ -539,10 +525,9 @@ pub mod pallet {
 		}
 
 		fn offchain_worker(block_number: BlockNumberFor<T>) {
-			
 			for res in Self::build_and_send_vrf_inout(block_number).into_iter().flatten() {
 				if let Err(e) = res {
-					log::info!(
+					log::debug!(
 						target: "runtime::rrsc",
 						"Skipping vrf at {:?}: {:?}",
 						block_number,
@@ -620,19 +605,17 @@ pub mod pallet {
 		) -> DispatchResult {
 			log::info!("submit_vrf_inout");
 			ensure_none(origin)?;
-			let current_session = T::ValidatorSet::session_index();
-			let exists =
-				ReceivedVrfInOut::<T>::contains_key(&current_session, &vrf_inout.authority_index);
+			let current_epoch = EpochIndex::<T>::get();
+			let account = match T::FindKeyOwner::key_owner(AuthorityId::ID, vrf_inout.key.as_ref()) {
+				Some(acc) => acc,
+				None => return Err(Error::<T>::InvalidKey)?,
+			};
+			
+			let exists = ReceivedVrfRandom::<T>::contains_key(&current_epoch, &account);
 			let keys = Authorities::<T>::get();
 			let public = keys.get(vrf_inout.authority_index as usize);
 			if let (false, Some(public)) = (exists, public) {
 				Self::deposit_event(Event::<T>::VrfInOutReceived { authority_id: public.0.clone() });
-
-				ReceivedVrfInOut::<T>::insert(
-					&current_session,
-					&vrf_inout.authority_index,
-					WrapperOpaque::from(vrf_inout.clone()),
-				);
 
 				let (inout, _) = {
 					let mut transcript = merlin::Transcript::new(b"RRSC");
@@ -646,10 +629,6 @@ pub mod pallet {
 						.map_err(|_| Error::<T>::InvalidKey)?
 				};
 				let vrf_random = u128::from_le_bytes(inout.make_bytes::<[u8; 16]>(cessp_consensus_rrsc::RRSC_VRF_PREFIX));
-				let account = match T::FindKeyOwner::key_owner(AuthorityId::ID, vrf_inout.key.as_ref()) {
-					Some(acc) => acc,
-					None => return Err(Error::<T>::InvalidKey)?,
-				};
 				ReceivedVrfRandom::<T>::insert(
 					&EpochIndex::<T>::get(),
 					&account,
@@ -1098,7 +1077,7 @@ impl<T: Config> Pallet<T> {
 		block_number: T::BlockNumber,
 	) -> OffchainResult<T, impl Iterator<Item = OffchainResult<T, ()>>> {
 		const START_VRF_RANDOM_PERIOD: Permill = Permill::from_percent(10);
-		const START_VRF_FINAL_PERIOD: Permill = Permill::from_percent(80);
+		const START_VRF_FINAL_PERIOD: Permill = Permill::from_percent(50);
 
 		let session_index = T::ValidatorSet::session_index();
 		let validators_len = Authorities::<T>::decode_len().unwrap_or_default() as u32;

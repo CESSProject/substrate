@@ -6,7 +6,7 @@ use sp_npos_elections::{
 };
 use frame_support::traits::Randomness;
 use super::{Config, CurrentBlockRandomness, EpochIndex, ReceivedVrfRandom};
-use codec::alloc::string::ToString;
+use codec::{alloc::string::ToString, EncodeLike};
 
 /// A wrapper for [`sp_npos_elections::seq_phragmen`] that implements [`NposSolver`].
 pub struct VrfSolver<AccountId, Accuracy, T, Balancing = ()>(
@@ -14,7 +14,7 @@ pub struct VrfSolver<AccountId, Accuracy, T, Balancing = ()>(
 );
 
 impl<
-		AccountId: IdentifierT,
+		AccountId: IdentifierT + EncodeLike<<T as frame_system::Config>::AccountId>,
 		Accuracy: PerThing128,
 		T: Config,
 		Balancing: Get<Option<(usize, ExtendedBalance)>>,
@@ -32,11 +32,11 @@ impl<
 		
 		let epoch_index = EpochIndex::<T>::get();
 		let mut account_index_hash = vec![];
-		for (account_index, account_id) in targets.into_iter().enumerate() {
+		for (_, account_id) in targets.into_iter().enumerate() {
 			// let hash = Self::random_hash("authorities", &account_index);
 			let vrf_random = match epoch_index {
 				0 => 0u128,
-				_ => ReceivedVrfRandom::<T>::get(&epoch_index.saturating_sub(1), &account_id)
+				_ => ReceivedVrfRandom::<T>::get(&epoch_index.saturating_sub(1), account_id.clone())
 						.unwrap_or(u128::max_value()),
 			};
 			account_index_hash.push((account_id, vrf_random));
