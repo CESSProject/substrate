@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -21,13 +21,76 @@
 use super::Epoch;
 use cessp_consensus_rrsc::{
 	digests::{PreDigest, PrimaryPreDigest, SecondaryPlainPreDigest, SecondaryVRFPreDigest},
-	make_transcript_data, AuthorityId, RRSCAuthorityWeight, Slot,
+	make_transcript, make_transcript_data, AuthorityId, RRSCAuthorityWeight, Slot, RRSC_VRF_PREFIX,
 };
 use codec::Encode;
+use schnorrkel::{keys::PublicKey, vrf::VRFInOut};
 use sp_application_crypto::AppKey;
 use sp_consensus_vrf::schnorrkel::{VRFOutput, VRFProof};
 use sp_core::{blake2_256, crypto::ByteArray, U256};
 use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
+
+/// Calculates the primary selection threshold for a given authority, taking
+/// into account `c` (`1 - c` represents the probability of a slot being empty).
+pub(super) fn calculate_primary_threshold(
+	c: (u64, u64),
+	authorities: &[(AuthorityId, RRSCAuthorityWeight)],
+	authority_index: usize,
+) -> u128 {
+	use num_bigint::BigUint;
+	use num_rational::BigRational;
+	use num_traits::{cast::ToPrimitive, identities::One};
+
+	let c = c.0 as f64 / c.1 as f64;
+
+	let theta = authorities[authority_index].1 as f64 /
+		authorities.iter().map(|(_, weight)| weight).sum::<u64>() as f64;
+
+	assert!(theta > 0.0, "authority with weight 0.");
+
+	// NOTE: in the equation `p = 1 - (1 - c)^theta` the value of `p` is always
+	// capped by `c`. For all pratical purposes `c` should always be set to a
+	// value < 0.5, as such in the computations below we should never be near
+	// edge cases like `0.999999`.
+
+	let p = BigRational::from_float(1f64 - (1f64 - c).powf(theta)).expect(
+		"returns None when the given value is not finite; \
+		 c is a configuration parameter defined in (0, 1]; \
+		 theta must be > 0 if the given authority's weight is > 0; \
+		 theta represents the validator's relative weight defined in (0, 1]; \
+		 powf will always return values in (0, 1] given both the \
+		 base and exponent are in that domain; \
+		 qed.",
+	);
+
+	let numer = p.numer().to_biguint().expect(
+		"returns None when the given value is negative; \
+		 p is defined as `1 - n` where n is defined in (0, 1]; \
+		 p must be a value in [0, 1); \
+		 qed.",
+	);
+
+	let denom = p.denom().to_biguint().expect(
+		"returns None when the given value is negative; \
+		 p is defined as `1 - n` where n is defined in (0, 1]; \
+		 p must be a value in [0, 1); \
+		 qed.",
+	);
+
+	((BigUint::one() << 128) * numer / denom).to_u128().expect(
+		"returns None if the underlying value cannot be represented with 128 bits; \
+		 we start with 2^128 which is one more than can be represented with 128 bits; \
+		 we multiple by p which is defined in [0, 1); \
+		 the result must be lower than 2^128 by at least one and thus representable with 128 bits; \
+		 qed.",
+	)
+}
+
+/// Returns true if the given VRF output is lower than the given threshold,
+/// false otherwise.
+pub(super) fn check_primary_threshold(inout: &VRFInOut, threshold: u128) -> bool {
+	u128::from_le_bytes(inout.make_bytes::<[u8; 16]>(RRSC_VRF_PREFIX)) < threshold
+}
 
 /// Get the expected secondary author for the given slot and with given
 /// authorities. This should always assign the slot to some authority unless the
@@ -38,7 +101,7 @@ pub(super) fn secondary_slot_author(
 	randomness: [u8; 32],
 ) -> Option<&AuthorityId> {
 	if authorities.is_empty() {
-		return None;
+		return None
 	}
 
 	let rand = U256::from((randomness, slot).using_encoded(blake2_256));
@@ -67,7 +130,7 @@ fn claim_secondary_slot(
 	let Epoch { authorities, randomness, epoch_index, .. } = epoch;
 
 	if authorities.is_empty() {
-		return None;
+		return None
 	}
 
 	let expected_author = secondary_slot_author(slot, authorities, *randomness)?;
@@ -105,7 +168,7 @@ fn claim_secondary_slot(
 			};
 
 			if let Some(pre_digest) = pre_digest {
-				return Some((pre_digest, authority_id.clone()));
+				return Some((pre_digest, authority_id.clone()))
 			}
 		}
 	}
@@ -139,14 +202,14 @@ pub fn claim_slot_using_keys(
 	keystore: &SyncCryptoStorePtr,
 	keys: &[(AuthorityId, usize)],
 ) -> Option<(PreDigest, AuthorityId)> {
-	primary_slot_author(slot, epoch, keystore, &keys).or_else(|| {
-		if epoch.config.allowed_slots.is_secondary_plain_slots_allowed()
-			|| epoch.config.allowed_slots.is_secondary_vrf_slots_allowed()
+	claim_primary_slot(slot, epoch, epoch.config.c, keystore, &keys).or_else(|| {
+		if epoch.config.allowed_slots.is_secondary_plain_slots_allowed() ||
+			epoch.config.allowed_slots.is_secondary_vrf_slots_allowed()
 		{
 			claim_secondary_slot(
 				slot,
 				&epoch,
-				&keys,
+				keys,
 				&keystore,
 				epoch.config.allowed_slots.is_secondary_vrf_slots_allowed(),
 			)
@@ -160,43 +223,49 @@ pub fn claim_slot_using_keys(
 /// This hashes the slot number, epoch, genesis hash, and chain randomness into
 /// the VRF.  If the VRF produces a value less than `threshold`, it is our turn,
 /// so it returns `Some(_)`. Otherwise, it returns `None`.
-fn primary_slot_author(
+fn claim_primary_slot(
 	slot: Slot,
 	epoch: &Epoch,
+	c: (u64, u64),
 	keystore: &SyncCryptoStorePtr,
 	keys: &[(AuthorityId, usize)],
 ) -> Option<(PreDigest, AuthorityId)> {
-	let Epoch {
-		authorities,
-		randomness,
-		epoch_index,
-		..
-	} = epoch;
+	let Epoch { authorities, randomness, epoch_index, .. } = epoch;
 
-	if authorities.is_empty() {
-		return None;
+	for (authority_id, authority_index) in keys {
+		let transcript = make_transcript(randomness, slot, *epoch_index);
+		let transcript_data = make_transcript_data(randomness, slot, *epoch_index);
+		// Compute the threshold we will use.
+		//
+		// We already checked that authorities contains `key.public()`, so it can't
+		// be empty.  Therefore, this division in `calculate_threshold` is safe.
+		let threshold = calculate_primary_threshold(c, authorities, *authority_index);
+
+		let result = SyncCryptoStore::sr25519_vrf_sign(
+			&**keystore,
+			AuthorityId::ID,
+			authority_id.as_ref(),
+			transcript_data,
+		);
+		if let Ok(Some(signature)) = result {
+			let public = PublicKey::from_bytes(&authority_id.to_raw_vec()).ok()?;
+			let inout = match signature.output.attach_input_hash(&public, transcript) {
+				Ok(inout) => inout,
+				Err(_) => continue,
+			};
+			if check_primary_threshold(&inout, threshold) {
+				let pre_digest = PreDigest::Primary(PrimaryPreDigest {
+					slot,
+					vrf_output: VRFOutput(signature.output),
+					vrf_proof: VRFProof(signature.proof),
+					authority_index: *authority_index as u32,
+				});
+
+				return Some((pre_digest, authority_id.clone()))
+			}
+		}
 	}
 
-	let slot_autority_index = *slot as usize % keys.len();
-	let (authority_id, authority_index) = &keys[slot_autority_index];
-
-	let transcript_data = make_transcript_data(randomness, slot, *epoch_index);
-
-	let result = SyncCryptoStore::sr25519_vrf_sign(
-		&**keystore,
-		AuthorityId::ID,
-		authority_id.as_ref(),
-		transcript_data,
-	);
-	if let Ok(Some(signature)) = result {
-		let pre_digest = PreDigest::Primary(PrimaryPreDigest {
-			slot,
-			vrf_output: VRFOutput(signature.output),
-			vrf_proof: VRFProof(signature.proof),
-			authority_index: *authority_index as u32,
-		});
-		return Some((pre_digest, authority_id.clone()));
-	};
 	None
 }
 

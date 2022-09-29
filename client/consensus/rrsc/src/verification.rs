@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -18,7 +18,7 @@
 
 //! Verification for RRSC headers.
 use super::{
-	authorship::secondary_slot_author,
+	authorship::{calculate_primary_threshold, check_primary_threshold, secondary_slot_author},
 	rrsc_err, find_pre_digest, BlockT, Epoch, Error,
 };
 use log::{debug, trace};
@@ -151,21 +151,25 @@ fn check_primary_header<B: BlockT + Sized>(
 	epoch: &Epoch,
 	c: (u64, u64),
 ) -> Result<(), Error<B>> {
-	let slot_autority_index = *pre_digest.slot as usize % epoch.authorities.len();
-	let expected_author = &epoch.authorities[slot_autority_index].0;
-
 	let author = &epoch.authorities[pre_digest.authority_index as usize].0;
-	
-	if expected_author != author {
-		return Err(Error::InvalidAuthor(expected_author.clone(), author.clone()))
-	}
 
 	if AuthorityPair::verify(&signature, pre_hash, &author) {
-		let transcript = make_transcript(&epoch.randomness, pre_digest.slot, epoch.epoch_index);
+		let (inout, _) = {
+			let transcript = make_transcript(&epoch.randomness, pre_digest.slot, epoch.epoch_index);
 
-		schnorrkel::PublicKey::from_bytes(author.as_slice())
-			.and_then(|p| p.vrf_verify(transcript, &pre_digest.vrf_output, &pre_digest.vrf_proof))
-			.map_err(|s| rrsc_err(Error::VRFVerificationFailed(s)))?;
+			schnorrkel::PublicKey::from_bytes(author.as_slice())
+				.and_then(|p| {
+					p.vrf_verify(transcript, &pre_digest.vrf_output, &pre_digest.vrf_proof)
+				})
+				.map_err(|s| rrsc_err(Error::VRFVerificationFailed(s)))?
+		};
+
+		let threshold =
+			calculate_primary_threshold(c, &epoch.authorities, pre_digest.authority_index as usize);
+
+		if !check_primary_threshold(&inout, threshold) {
+			return Err(rrsc_err(Error::VRFVerificationOfBlockFailed(author.clone(), threshold)))
+		}
 
 		Ok(())
 	} else {
