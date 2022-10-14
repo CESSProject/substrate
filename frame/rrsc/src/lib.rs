@@ -612,10 +612,10 @@ pub mod pallet {
 			};
 			
 			let exists = ReceivedVrfRandom::<T>::contains_key(&current_epoch, &account);
-			let keys = Authorities::<T>::get();
-			let public = keys.get(vrf_inout.authority_index as usize);
+			let public = Some(vrf_inout.key.clone());
+
 			if let (false, Some(public)) = (exists, public) {
-				Self::deposit_event(Event::<T>::VrfInOutReceived { authority_id: public.0.clone() });
+				Self::deposit_event(Event::<T>::VrfInOutReceived { authority_id: public.clone() });
 
 				let (inout, _) = {
 					let mut transcript = merlin::Transcript::new(b"RRSC");
