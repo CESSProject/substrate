@@ -603,19 +603,47 @@ pub mod pallet {
 			vrf_inout: VrfInOut<T::BlockNumber>,
 			_signature: <cessp_consensus_rrsc::AuthorityId as RuntimeAppPublic>::Signature,
 		) -> DispatchResult {
-			log::info!("submit_vrf_inout");
 			ensure_none(origin)?;
 			let current_epoch = EpochIndex::<T>::get();
 			let account = match T::FindKeyOwner::key_owner(AuthorityId::ID, vrf_inout.key.as_ref()) {
 				Some(acc) => acc,
 				None => return Err(Error::<T>::InvalidKey)?,
 			};
-			
+
 			let exists = ReceivedVrfRandom::<T>::contains_key(&current_epoch, &account);
-			let keys = Authorities::<T>::get();
-			let public = keys.get(vrf_inout.authority_index as usize);
+
+			// JC notes:
+			// yeoushing, this is the key logic change, using `vrf_inout.key` directly.
+			// let keys = Authorities::<T>::get();
+			// let public = keys.get(vrf_inout.authority_index as usize);
+			let public = Some(vrf_inout.key.clone());
+
+			// log::info!("[onchain] keys: {:?}", keys.as_slice());
+			log::info!("Validators I know: {:?}", T::ValidatorSet::validators());
+			log::info!("submit_vrf_inout - account: {:?}, pub_key: {:?}, exists: {:?}", account, public, exists);
+
+			// JC notes:
+			// The reason that it is not writing to `ReceivedVrfRandom` storage is because for some of
+			// the nodes, it couldn't find the public key above, that `public` returned in L#617 is
+			// returning `None` so the if statement below is skipped.
+			//
+			// Basically, the `local_keys` that used in offchain worker (L#1161) doesn't match with the
+			// onchain keystore information in `Authorities` storage.
+			//
+			// Here, there are two possible fixes:
+			//   1. Get the missing offchain key into the onchain `Authorities` storage.
+			//      But this is said easier than done, value in this storage is changed in
+			//      enact_epoch_change(), which is the value `validator` passed in during
+			//      `on_new_session()`, L#1387.
+			//   2. Here I am kind of just brute force and use the vrf_inout key directly that passed in
+			//      from parameters. See if this fixes the problem for now.
+
 			if let (false, Some(public)) = (exists, public) {
-				Self::deposit_event(Event::<T>::VrfInOutReceived { authority_id: public.0.clone() });
+				// Self::deposit_event(Event::<T>::VrfInOutReceived { authority_id: public.0.clone() });
+				Self::deposit_event(Event::<T>::VrfInOutReceived { authority_id: public.clone() });
+
+				log::info!("  L insert to storage");
+
 
 				let (inout, _) = {
 					let mut transcript = merlin::Transcript::new(b"RRSC");
@@ -1158,6 +1186,9 @@ impl<T: Config> Pallet<T> {
 		// send concurrent vrf.
 		Self::with_vrf_inout_lock(authority_index, session_index, block_number, || {
 			let call = prepare_vrf_inout()?;
+
+
+			log::info!("[offchain] keys: {:?}", AuthorityId::all());
 			log::info!(
 				target: "runtime:rrsc_vrf",
 				"[index: {:?}] Reporting vrf inout at block: {:?} (session: {:?}): {:?}",
