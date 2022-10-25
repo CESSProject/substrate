@@ -4,9 +4,8 @@ use sp_std::prelude::*;
 use sp_npos_elections::{
 	ElectionResult, ExtendedBalance, IdentifierT, PerThing128, VoteWeight,
 };
-use frame_support::traits::Randomness;
-use super::{Config, CurrentBlockRandomness, EpochIndex, ReceivedVrfRandom};
-use codec::{alloc::string::ToString, EncodeLike};
+use super::{Config, EpochIndex, ReceivedVrfRandom};
+use codec::EncodeLike;
 
 /// A wrapper for [`sp_npos_elections::seq_phragmen`] that implements [`NposSolver`].
 pub struct VrfSolver<AccountId, Accuracy, T, Balancing = ()>(
@@ -26,14 +25,13 @@ impl<
 	fn solve(
 		winners: usize,
 		targets: Vec<Self::AccountId>,
-		voters: Vec<(Self::AccountId, VoteWeight, impl IntoIterator<Item = Self::AccountId>)>,
+		_voters: Vec<(Self::AccountId, VoteWeight, impl IntoIterator<Item = Self::AccountId>)>,
 	) -> Result<ElectionResult<Self::AccountId, Self::Accuracy>, Self::Error> {
 		let to_elect = winners;
 		
 		let epoch_index = EpochIndex::<T>::get();
 		let mut account_index_hash = vec![];
 		for (_, account_id) in targets.into_iter().enumerate() {
-			// let hash = Self::random_hash("authorities", &account_index);
 			let vrf_random = match epoch_index {
 				0 => 0u128,
 				_ => ReceivedVrfRandom::<T>::get(&epoch_index.saturating_sub(1), account_id.clone())
@@ -58,22 +56,4 @@ impl<
 		Ok(ElectionResult { winners, assignments })
 	}
 
-}
-
-impl <
-AccountId: IdentifierT,
-Accuracy: PerThing128,
-T: Config,
-Balancing: Get<Option<(usize, ExtendedBalance)>>,
-> VrfSolver<AccountId, Accuracy, T, Balancing> {
-	pub fn random_hash(context: &str,authority_index: &usize) -> T::Hash {
-		let mut b_context = context.to_string();
-		b_context.push_str(authority_index.to_string().as_str());
-		let (hash, _) = CurrentBlockRandomness::<T>::random(&b_context.as_bytes());
-		let hash = 	match hash {
-				Some(h) => h,
-				None => T::Hash::default(),
-		};
-		hash
-	}
 }

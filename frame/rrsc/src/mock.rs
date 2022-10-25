@@ -37,6 +37,7 @@ use sp_runtime::{
 	impl_opaque_keys,
 	testing::{Digest, DigestItem, Header, TestXt},
 	traits::{Header as _, IdentityLookup, OpaqueKeys},
+	transaction_validity::TransactionPriority,
 	Perbill,
 };
 use sp_staking::{EraIndex, SessionIndex};
@@ -57,7 +58,7 @@ frame_support::construct_runtime!(
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
 		Historical: pallet_session_historical::{Pallet},
 		Offences: pallet_offences::{Pallet, Storage, Event},
-		RRSC: pallet_rrsc::{Pallet, Call, Storage, Config, ValidateUnsigned},
+		RRSC: pallet_rrsc::{Pallet, Call, Storage, Config, ValidateUnsigned, Event<T>},
 		Staking: pallet_staking::{Pallet, Call, Storage, Config<T>, Event<T>},
 		Session: pallet_session::{Pallet, Call, Storage, Event, Config<T>},
 		Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent},
@@ -215,6 +216,7 @@ parameter_types! {
 	pub const EpochDuration: u64 = 3;
 	pub const ReportLongevity: u64 =
 		BondingDuration::get() as u64 * SessionsPerEra::get() as u64 * EpochDuration::get();
+	pub const RRSCVrfUnsignedPriority: TransactionPriority = TransactionPriority::max_value();
 }
 
 impl Config for Test {
@@ -238,6 +240,12 @@ impl Config for Test {
 
 	type WeightInfo = ();
 	type MaxAuthorities = ConstU32<10>;
+
+	type Event = Event;
+	type ValidatorSet = Historical;
+	type FindKeyOwner = Session;
+	type NextSessionRotation = RRSC;
+	type UnsignedPriority = RRSCVrfUnsignedPriority;
 }
 
 pub fn go_to_block(n: u64, s: u64) {

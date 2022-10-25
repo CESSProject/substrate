@@ -49,4 +49,8 @@ impl crate::WeightInfo for () {
 			.saturating_add(DbWeight::get().reads(14 + 3 * MAX_NOMINATORS))
 			.saturating_add(DbWeight::get().writes(10 + 3 * MAX_NOMINATORS))
 	}
+
+	fn submit_vrf_inout() -> Weight {
+		DbWeight::get().writes(100)
+	}
 }

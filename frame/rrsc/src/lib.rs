@@ -82,6 +82,7 @@ pub use pallet::*;
 pub trait WeightInfo {
 	fn plan_config_change() -> Weight;
 	fn report_equivocation(validator_count: u32) -> Weight;
+	fn submit_vrf_inout() -> Weight;
 }
 
 /// Trigger an epoch change, if any should take place.
@@ -597,7 +598,7 @@ pub mod pallet {
 			Ok(())
 		}
 
-		#[pallet::weight(100)]
+		#[pallet::weight(<T as Config>::WeightInfo::submit_vrf_inout())]
 		pub fn submit_vrf_inout(
 			origin: OriginFor<T>,
 			vrf_inout: VrfInOut<T::BlockNumber>,
@@ -1269,11 +1270,6 @@ impl<T: Config> Pallet<T> {
 			if !signature_valid {
 				return InvalidTransaction::BadProof.into()
 			}
-
-			let account = match T::FindKeyOwner::key_owner(AuthorityId::ID, vrf_inout.key.as_ref()) {
-				Some(acc) => acc,
-				None => return InvalidTransaction::BadProof.into(),
-			};
 
 			ValidTransaction::with_tag_prefix("RRSC")
 				.priority(T::UnsignedPriority::get())
