@@ -20,6 +20,11 @@
 use super::*;
 use frame_benchmarking::benchmarks;
 
+use frame_support::{
+	parameter_types,
+	traits::FindKeyOwner,
+};
+
 type Header = sp_runtime::generic::Header<u64, sp_runtime::traits::BlakeTwo256>;
 
 benchmarks! {
@@ -94,6 +99,27 @@ mod tests {
 
 			println!("equivocation_proof: {:?}", equivocation_proof);
 			println!("equivocation_proof.encode(): {:?}", equivocation_proof.encode());
+		});
+	}
+
+	#[test]
+	fn test_submit_vrf_inout() {
+		let (pairs, mut ext) = new_test_ext_with_pairs(3);
+		
+		let authority_index = 0;
+		let authority_pair = &pairs[0];
+
+		// let account = match <Test>::FindKeyOwner::key_owner(AuthorityId::ID, authority_pair.public().as_ref()) {
+		// 	Some(acc) => acc,
+		// 	None => panic!(),
+		// };
+
+		ext.execute_with(|| {
+			start_era(1);
+			let vrf_random = make_vrf_random(
+				EpochIndex::<Test>::get() + 1,
+				authority_pair,
+			);
 		});
 	}
 }

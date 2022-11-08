@@ -1545,6 +1545,7 @@ mod benches {
 		[pallet_preimage, Preimage]
 		[pallet_proxy, Proxy]
 		[pallet_referenda, Referenda]
+		[pallet_rrsc, RRSC]
 		[pallet_scheduler, Scheduler]
 		[pallet_session, SessionBench::<Runtime>]
 		[pallet_staking, Staking]

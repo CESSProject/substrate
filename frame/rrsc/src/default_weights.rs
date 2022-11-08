@@ -51,6 +51,6 @@ impl crate::WeightInfo for () {
 	}
 
 	fn submit_vrf_inout() -> Weight {
-		DbWeight::get().writes(100)
+		DbWeight::get().writes(100000)
 	}
 }

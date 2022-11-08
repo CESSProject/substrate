@@ -22,7 +22,7 @@ use codec::Encode;
 use frame_election_provider_support::{onchain, SequentialPhragmen};
 use frame_support::{
 	parameter_types,
-	traits::{ConstU128, ConstU32, ConstU64, GenesisBuild, KeyOwnerProofSystem, OnInitialize},
+	traits::{ConstU128, ConstU32, ConstU64, FindKeyOwner, GenesisBuild, KeyOwnerProofSystem, OnInitialize},
 };
 use pallet_session::historical as pallet_session_historical;
 use cessp_consensus_rrsc::{AuthorityId, AuthorityPair, Slot};
@@ -41,6 +41,7 @@ use sp_runtime::{
 	Perbill,
 };
 use sp_staking::{EraIndex, SessionIndex};
+use sp_application_crypto::{ByteArray, RuntimeAppPublic};
 
 type DummyValidatorId = u64;
 
@@ -464,4 +465,38 @@ pub fn generate_equivocation_proof(
 		first_header: h1,
 		second_header: h2,
 	}
+}
+
+// pub fn make_vrf_random(
+// 	authorities_len: usize,
+// ) -> sp_io::TestExternalities {
+// 	let pairs = (0..authorities_len)
+// 		.map(|i| AuthorityPair::from_seed(&U256::from(i).into()))
+// 		.collect::<Vec<_>>();
+
+// 	let public = pairs.iter().map(|p| p.public()).collect();
+
+// 	new_test_ext_raw_authorities(public)
+// }
+
+pub fn make_vrf_random(
+	epoch_index: u64,
+	pair: &cessp_consensus_rrsc::AuthorityPair,
+) -> u128 {
+	let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, pair.public().as_ref(),  RRSC::randomness().to_vec(), epoch_index);
+
+	let (inout, _) = {
+		let mut transcript = merlin::Transcript::new(b"RRSC");
+		transcript.append_u64(b"current epoch", epoch_index);
+		transcript.append_message(b"chain randomness", &RRSC::randomness()[..]);
+		schnorrkel::PublicKey::from_bytes(pair.public().as_slice())
+		.and_then(|p| {
+			let (output, proof) = vrf_inout_sign.unwrap();
+			p.vrf_verify(transcript, &schnorrkel::vrf::VRFOutput::from_bytes(&output)?, &schnorrkel::vrf::VRFProof::from_bytes(&proof)?)
+		}).unwrap()
+		// .map_err(|_| Error::<T>::InvalidKey)?
+	};
+	let vrf_random = u128::from_le_bytes(inout.make_bytes::<[u8; 16]>(cessp_consensus_rrsc::RRSC_VRF_PREFIX));
+
+	vrf_random
 }

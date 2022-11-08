@@ -597,14 +597,13 @@ pub mod pallet {
 			PendingEpochConfigChange::<T>::put(config);
 			Ok(())
 		}
-
-		#[pallet::weight(<T as Config>::WeightInfo::submit_vrf_inout())]
+		
+		#[pallet::weight((<T as Config>::WeightInfo::submit_vrf_inout(), DispatchClass::Operational))]
 		pub fn submit_vrf_inout(
 			origin: OriginFor<T>,
 			vrf_inout: VrfInOut<T::BlockNumber>,
 			_signature: <cessp_consensus_rrsc::AuthorityId as RuntimeAppPublic>::Signature,
 		) -> DispatchResult {
-			log::info!("submit_vrf_inout");
 			ensure_none(origin)?;
 			let current_epoch = EpochIndex::<T>::get();
 			let account = match T::FindKeyOwner::key_owner(AuthorityId::ID, vrf_inout.key.as_ref()) {
