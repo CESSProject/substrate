@@ -549,17 +549,6 @@ pub fn make_vrf_random(
 	public: &AuthorityId,
 ) -> u128 {
 	let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, public.as_ref(),  RRSC::randomness().to_vec(), epoch_index);
-	// let transcript_data = VRFTranscriptData {
-	// 	label: b"RRSC",
-	// 	items: vec![
-	// 		("current epoch", VRFTranscriptValue::U64(epoch_index)),
-	// 		("chain randomness", VRFTranscriptValue::Bytes(RRSC::randomness().to_vec())),
-	// 	],
-	// };
-	// let vrf_inout_sign = SyncCryptoStore::sr25519_vrf_sign(keystore, AuthorityId::ID, pair.public().as_ref(), transcript_data)
-	// 	.ok()
-	// 	.flatten()
-	// 	.map(|sig| (sig.output.to_bytes(), sig.proof.to_bytes()));
 
 	let (inout, _) = {
 		let mut transcript = merlin::Transcript::new(b"RRSC");
