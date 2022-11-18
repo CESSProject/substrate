@@ -25,6 +25,13 @@ use frame_support::{
 	traits::FindKeyOwner,
 };
 
+use sp_core::{
+	crypto::{IsWrappedBy, KeyTypeId, Pair },
+	H256, U256,
+};
+use sp_keystore::{testing::KeyStore, KeystoreExt, SyncCryptoStore};
+use std::sync::Arc;
+
 type Header = sp_runtime::generic::Header<u64, sp_runtime::traits::BlakeTwo256>;
 
 benchmarks! {
@@ -78,6 +85,8 @@ benchmarks! {
 
 #[cfg(test)]
 mod tests {
+	use sp_keystore::SyncCryptoStore;
+
 	use super::*;
 	use crate::mock::*;
 
@@ -104,22 +113,19 @@ mod tests {
 
 	#[test]
 	fn test_submit_vrf_inout() {
-		let (pairs, mut ext) = new_test_ext_with_pairs(3);
-		
-		let authority_index = 0;
-		let authority_pair = &pairs[0];
-
-		// let account = match <Test>::FindKeyOwner::key_owner(AuthorityId::ID, authority_pair.public().as_ref()) {
-		// 	Some(acc) => acc,
-		// 	None => panic!(),
-		// };
+		let (keystore, public, mut ext) = new_test_ext_with_keystore();
+	
+		ext.register_extension(KeystoreExt(Arc::new(keystore)));
 
 		ext.execute_with(|| {
 			start_era(1);
 			let vrf_random = make_vrf_random(
 				EpochIndex::<Test>::get() + 1,
-				authority_pair,
+				public.get(0).unwrap(),
 			);
+
+			println!("vrf_random: {:?}", vrf_random);
+			println!("vrf random.encode(): {:?}", vrf_random.encode());
 		});
 	}
 }

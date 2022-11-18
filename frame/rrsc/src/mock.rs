@@ -22,16 +22,17 @@ use codec::Encode;
 use frame_election_provider_support::{onchain, SequentialPhragmen};
 use frame_support::{
 	parameter_types,
-	traits::{ConstU128, ConstU32, ConstU64, FindKeyOwner, GenesisBuild, KeyOwnerProofSystem, OnInitialize},
+	traits::{ConstU128, ConstU32, ConstU64, GenesisBuild, KeyOwnerProofSystem, OnInitialize},
 };
 use pallet_session::historical as pallet_session_historical;
 use cessp_consensus_rrsc::{AuthorityId, AuthorityPair, Slot};
 use sp_consensus_vrf::schnorrkel::{VRFOutput, VRFProof};
 use sp_core::{
-	crypto::{IsWrappedBy, KeyTypeId, Pair},
-	H256, U256,
+	crypto::{IsWrappedBy, KeyTypeId, Pair },
+	H256, U256, sr25519::Public,
 };
-use sp_io;
+use sp_io::{self};
+use sp_keystore::{vrf::{VRFTranscriptData, VRFTranscriptValue}, SyncCryptoStore, testing::KeyStore};
 use sp_runtime::{
 	curve::PiecewiseLinear,
 	impl_opaque_keys,
@@ -418,6 +419,82 @@ pub fn new_test_ext_raw_authorities(authorities: Vec<AuthorityId>) -> sp_io::Tes
 	t.into()
 }
 
+const PHRASE: &str = "news slush supreme milk chapter athlete soap sausage put clutch what kitten";
+	
+pub fn new_test_ext_with_keystore() 
+-> (KeyStore, Vec<AuthorityId>, sp_io::TestExternalities) {
+	let keystore = KeyStore::new();
+
+	SyncCryptoStore::sr25519_generate_new(
+		&keystore,
+		AuthorityId::ID,
+		Some(&format!("{}/hunter1", PHRASE)),
+	)
+	.unwrap();
+	SyncCryptoStore::sr25519_generate_new(
+		&keystore,
+		AuthorityId::ID,
+		Some(&format!("{}/hunter2", PHRASE)),
+	)
+	.unwrap();
+	SyncCryptoStore::sr25519_generate_new(
+		&keystore,
+		AuthorityId::ID,
+		Some(&format!("{}/hunter3", PHRASE)),
+	)
+	.unwrap();
+
+	let all_keys = SyncCryptoStore::sr25519_public_keys(&keystore, AuthorityId::ID);
+
+	let all_keys: Vec<AuthorityId> = all_keys.into_iter().map(|a| cessp_consensus_rrsc::AuthorityId::from(a)).collect();
+	(keystore, all_keys.clone(), new_test_ext_raw_authorities(all_keys))
+}
+
+pub fn new_test_ext_seed_authorities(authorities: Vec<AuthorityId>) -> sp_io::TestExternalities {
+	let mut t = frame_system::GenesisConfig::default().build_storage::<Test>().unwrap();
+
+	let balances: Vec<_> = (0..authorities.len()).map(|i| (i as u64, 10_000_000)).collect();
+
+	pallet_balances::GenesisConfig::<Test> { balances }
+		.assimilate_storage(&mut t)
+		.unwrap();
+
+	// stashes are the index.
+	let session_keys: Vec<_> = authorities
+		.iter()
+		.enumerate()
+		.map(|(i, k)| {
+			(i as u64, i as u64, MockSessionKeys { rrsc_authority: AuthorityId::from(k.clone()) })
+		})
+		.collect();
+
+	// NOTE: this will initialize the rrsc authorities
+	// through OneSessionHandler::on_genesis_session
+	pallet_session::GenesisConfig::<Test> { keys: session_keys }
+		.assimilate_storage(&mut t)
+		.unwrap();
+
+	// controllers are the index + 1000
+	let stakers: Vec<_> = (0..authorities.len())
+		.map(|i| {
+			(i as u64, i as u64 + 1000, 10_000, pallet_staking::StakerStatus::<u64>::Validator)
+		})
+		.collect();
+
+	let staking_config = pallet_staking::GenesisConfig::<Test> {
+		stakers,
+		validator_count: 8,
+		force_era: pallet_staking::Forcing::ForceNew,
+		minimum_validator_count: 0,
+		invulnerables: vec![],
+		..Default::default()
+	};
+
+	staking_config.assimilate_storage(&mut t).unwrap();
+
+	t.into()
+}
+
 /// Creates an equivocation at the current block, by generating two headers.
 pub fn generate_equivocation_proof(
 	offender_authority_index: u32,
@@ -467,29 +544,28 @@ pub fn generate_equivocation_proof(
 	}
 }
 
-// pub fn make_vrf_random(
-// 	authorities_len: usize,
-// ) -> sp_io::TestExternalities {
-// 	let pairs = (0..authorities_len)
-// 		.map(|i| AuthorityPair::from_seed(&U256::from(i).into()))
-// 		.collect::<Vec<_>>();
-
-// 	let public = pairs.iter().map(|p| p.public()).collect();
-
-// 	new_test_ext_raw_authorities(public)
-// }
-
 pub fn make_vrf_random(
 	epoch_index: u64,
-	pair: &cessp_consensus_rrsc::AuthorityPair,
+	public: &AuthorityId,
 ) -> u128 {
-	let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, pair.public().as_ref(),  RRSC::randomness().to_vec(), epoch_index);
+	let vrf_inout_sign = sp_io::crypto::sr25519_vrf_sign(AuthorityId::ID, public.as_ref(),  RRSC::randomness().to_vec(), epoch_index);
+	// let transcript_data = VRFTranscriptData {
+	// 	label: b"RRSC",
+	// 	items: vec![
+	// 		("current epoch", VRFTranscriptValue::U64(epoch_index)),
+	// 		("chain randomness", VRFTranscriptValue::Bytes(RRSC::randomness().to_vec())),
+	// 	],
+	// };
+	// let vrf_inout_sign = SyncCryptoStore::sr25519_vrf_sign(keystore, AuthorityId::ID, pair.public().as_ref(), transcript_data)
+	// 	.ok()
+	// 	.flatten()
+	// 	.map(|sig| (sig.output.to_bytes(), sig.proof.to_bytes()));
 
 	let (inout, _) = {
 		let mut transcript = merlin::Transcript::new(b"RRSC");
 		transcript.append_u64(b"current epoch", epoch_index);
 		transcript.append_message(b"chain randomness", &RRSC::randomness()[..]);
-		schnorrkel::PublicKey::from_bytes(pair.public().as_slice())
+		schnorrkel::PublicKey::from_bytes(public.as_slice())
 		.and_then(|p| {
 			let (output, proof) = vrf_inout_sign.unwrap();
 			p.vrf_verify(transcript, &schnorrkel::vrf::VRFOutput::from_bytes(&output)?, &schnorrkel::vrf::VRFProof::from_bytes(&proof)?)

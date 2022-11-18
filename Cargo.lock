@@ -6680,6 +6680,7 @@ dependencies = [
  "sp-consensus-vrf",
  "sp-core",
  "sp-io",
+ "sp-keystore",
  "sp-npos-elections",
  "sp-runtime",
  "sp-session",
