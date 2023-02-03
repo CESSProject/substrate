@@ -2,6 +2,8 @@
 resolver = "2"
 
 members = [
+	"bin/cess-node-template/node",
+	"bin/cess-node-template/runtime",
 	"bin/node-template/node",
 	"bin/node-template/pallets/template",
 	"bin/node-template/runtime",
@@ -31,6 +33,7 @@ members = [
 	"client/consensus/epochs",
 	"client/consensus/manual-seal",
 	"client/consensus/pow",
+	"client/consensus/rrsc",
 	"client/consensus/slots",
 	"client/db",
 	"client/executor",
@@ -134,6 +137,7 @@ members = [
 	"frame/recovery",
 	"frame/referenda",
 	"frame/remark",
+	"frame/rrsc",
 	"frame/scheduler",
 	"frame/scored-pool",
 	"frame/session",
