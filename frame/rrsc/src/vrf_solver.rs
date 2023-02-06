@@ -1,5 +1,8 @@
-use frame_election_provider_support::{Assignment, NposSolver};
-use frame_support::traits::{Get, Randomness, ValidatorCredits};
+use frame_election_provider_support::{Assignment, NposSolver, WeightInfo as NposWeightInfo};
+use frame_support::{
+	traits::{Get, Randomness, ValidatorCredits},
+	weights::Weight
+};
 use sp_std::prelude::*;
 use sp_npos_elections::{
 	ElectionResult, ExtendedBalance, IdentifierT, PerThing128, VoteWeight,
@@ -74,6 +77,10 @@ impl<
 			.collect();
 
 		Ok(ElectionResult { winners, assignments })
+	}
+
+	fn weight<W: NposWeightInfo>(voters: u32, targets: u32, vote_degree: u32) -> Weight {
+		W::vrf_solver(voters, targets, vote_degree)
 	}
 }
 

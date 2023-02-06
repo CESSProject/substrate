@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -21,8 +21,8 @@
 use codec::{Decode, Encode};
 use log::info;
 
-use crate::{migration::EpochV0, Epoch};
-use cessp_consensus_rrsc::{RRSCBlockWeight, RRSCGenesisConfiguration};
+use crate::{migration::EpochV0, Epoch, LOG_TARGET};
+use cessp_consensus_rrsc::{RRSCBlockWeight, RRSCConfiguration};
 use sc_client_api::backend::AuxStore;
 use sc_consensus_epochs::{
 	migration::{EpochChangesV0For, EpochChangesV1For},
@@ -57,36 +57,32 @@ where
 /// Load or initialize persistent epoch change data from backend.
 pub fn load_epoch_changes<Block: BlockT, B: AuxStore>(
 	backend: &B,
-	config: &RRSCGenesisConfiguration,
+	config: &RRSCConfiguration,
 ) -> ClientResult<SharedEpochChanges<Block, Epoch>> {
 	let version = load_decode::<_, u32>(backend, RRSC_EPOCH_CHANGES_VERSION)?;
 
 	let maybe_epoch_changes = match version {
-		None => {
+		None =>
 			load_decode::<_, EpochChangesV0For<Block, EpochV0>>(backend, RRSC_EPOCH_CHANGES_KEY)?
-				.map(|v0| v0.migrate().map(|_, _, epoch| epoch.migrate(config)))
-		},
-		Some(1) => {
+				.map(|v0| v0.migrate().map(|_, _, epoch| epoch.migrate(config))),
+		Some(1) =>
 			load_decode::<_, EpochChangesV1For<Block, EpochV0>>(backend, RRSC_EPOCH_CHANGES_KEY)?
-				.map(|v1| v1.migrate().map(|_, _, epoch| epoch.migrate(config)))
-		},
+				.map(|v1| v1.migrate().map(|_, _, epoch| epoch.migrate(config))),
 		Some(2) => {
 			// v2 still uses `EpochChanges` v1 format but with a different `Epoch` type.
 			load_decode::<_, EpochChangesV1For<Block, Epoch>>(backend, RRSC_EPOCH_CHANGES_KEY)?
 				.map(|v2| v2.migrate())
 		},
-		Some(RRSC_EPOCH_CHANGES_CURRENT_VERSION) => {
-			load_decode::<_, EpochChangesFor<Block, Epoch>>(backend, RRSC_EPOCH_CHANGES_KEY)?
-		},
-		Some(other) => {
-			return Err(ClientError::Backend(format!("Unsupported RRSC DB version: {:?}", other)))
-		},
+		Some(RRSC_EPOCH_CHANGES_CURRENT_VERSION) =>
+			load_decode::<_, EpochChangesFor<Block, Epoch>>(backend, RRSC_EPOCH_CHANGES_KEY)?,
+		Some(other) =>
+			return Err(ClientError::Backend(format!("Unsupported RRSC DB version: {:?}", other))),
 	};
 
 	let epoch_changes =
 		SharedEpochChanges::<Block, Epoch>::new(maybe_epoch_changes.unwrap_or_else(|| {
 			info!(
-				target: "rrsc",
+				target: LOG_TARGET,
 				"👶 Creating empty RRSC epoch changes on what appears to be first startup.",
 			);
 			EpochChangesFor::<Block, Epoch>::default()
@@ -143,11 +139,11 @@ pub fn load_block_weight<H: Encode, B: AuxStore>(
 mod test {
 	use super::*;
 	use crate::migration::EpochV0;
-	use cessp_consensus_rrsc::{AllowedSlots, RRSCGenesisConfiguration};
 	use fork_tree::ForkTree;
 	use sc_consensus_epochs::{EpochHeader, PersistedEpoch, PersistedEpochHeader};
 	use sc_network_test::Block as TestBlock;
 	use sp_consensus::Error as ConsensusError;
+	use cessp_consensus_rrsc::AllowedSlots;
 	use sp_core::H256;
 	use sp_runtime::traits::NumberFor;
 	use substrate_test_runtime_client;
@@ -186,11 +182,11 @@ mod test {
 
 		let epoch_changes = load_epoch_changes::<TestBlock, _>(
 			&client,
-			&RRSCGenesisConfiguration {
+			&RRSCConfiguration {
 				slot_duration: 10,
 				epoch_length: 4,
 				c: (3, 10),
-				genesis_authorities: vec![],
+				authorities: Vec::new(),
 				randomness: Default::default(),
 				allowed_slots: AllowedSlots::PrimaryAndSecondaryPlainSlots,
 			},
@@ -203,8 +199,8 @@ mod test {
 				.tree()
 				.iter()
 				.map(|(_, _, epoch)| epoch.clone())
-				.collect::<Vec<_>>()
-				== vec![PersistedEpochHeader::Regular(EpochHeader {
+				.collect::<Vec<_>>() ==
+				vec![PersistedEpochHeader::Regular(EpochHeader {
 					start_slot: 0.into(),
 					end_slot: 100.into(),
 				})],
@@ -214,6 +210,6 @@ mod test {
 			client.insert_aux(values, &[]).unwrap();
 		});
 
-		assert_eq!(load_decode::<_, u32>(&client, RRSC_EPOCH_CHANGES_VERSION).unwrap(), Some(2));
+		assert_eq!(load_decode::<_, u32>(&client, RRSC_EPOCH_CHANGES_VERSION).unwrap(), Some(3));
 	}
 }

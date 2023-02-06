@@ -17,8 +17,10 @@
 
 //! Benchmarks for the RRSC Pallet.
 
+#![cfg(feature = "runtime-benchmarks")]
+
 use super::*;
-use frame_benchmarking::benchmarks;
+use frame_benchmarking::v1::benchmarks;
 
 type Header = sp_runtime::generic::Header<u64, sp_runtime::traits::BlakeTwo256>;
 

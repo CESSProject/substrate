@@ -19,13 +19,14 @@
 //! RRSC authority selection and slot claiming.
 
 use super::Epoch;
+use codec::Encode;
+use sc_consensus_epochs::Epoch as EpochT;
+use schnorrkel::{keys::PublicKey, vrf::VRFInOut};
+use sp_application_crypto::AppKey;
 use cessp_consensus_rrsc::{
 	digests::{PreDigest, PrimaryPreDigest, SecondaryPlainPreDigest, SecondaryVRFPreDigest},
 	make_transcript, make_transcript_data, AuthorityId, RRSCAuthorityWeight, Slot, RRSC_VRF_PREFIX,
 };
-use codec::Encode;
-use schnorrkel::{keys::PublicKey, vrf::VRFInOut};
-use sp_application_crypto::AppKey;
 use sp_consensus_vrf::schnorrkel::{VRFOutput, VRFProof};
 use sp_core::{blake2_256, crypto::ByteArray, U256};
 use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
@@ -40,6 +41,14 @@ pub(super) fn calculate_primary_threshold(
 	use num_bigint::BigUint;
 	use num_rational::BigRational;
 	use num_traits::{cast::ToPrimitive, identities::One};
+
+	// Prevent div by zero and out of bounds access.
+	// While Babe's pallet implementation that ships with FRAME performs a sanity check over
+	// configuration parameters, this is not sufficient to guarantee that `c.1` is non-zero
+	// (i.e. third party implementations are possible).
+	if c.1 == 0 || authority_index >= authorities.len() {
+		return 0
+	}
 
 	let c = c.0 as f64 / c.1 as f64;
 
@@ -77,7 +86,7 @@ pub(super) fn calculate_primary_threshold(
 		 qed.",
 	);
 
-	((BigUint::one() << 128) * numer / denom).to_u128().expect(
+	((BigUint::one() << 128usize) * numer / denom).to_u128().expect(
 		"returns None if the underlying value cannot be represented with 128 bits; \
 		 we start with 2^128 which is one more than can be represented with 128 bits; \
 		 we multiple by p which is defined in [0, 1); \
@@ -127,10 +136,15 @@ fn claim_secondary_slot(
 	keystore: &SyncCryptoStorePtr,
 	author_secondary_vrf: bool,
 ) -> Option<(PreDigest, AuthorityId)> {
-	let Epoch { authorities, randomness, epoch_index, .. } = epoch;
+	let Epoch { authorities, randomness, mut epoch_index, .. } = epoch;
 
 	if authorities.is_empty() {
 		return None
+	}
+
+	if epoch.end_slot() <= slot {
+		// Slot doesn't strictly belong to the epoch, create a clone with fixed values.
+		epoch_index = epoch.clone_for_slot(slot).epoch_index;
 	}
 
 	let expected_author = secondary_slot_author(slot, authorities, *randomness)?;
@@ -138,7 +152,7 @@ fn claim_secondary_slot(
 	for (authority_id, authority_index) in keys {
 		if authority_id == expected_author {
 			let pre_digest = if author_secondary_vrf {
-				let transcript_data = make_transcript_data(randomness, slot, *epoch_index);
+				let transcript_data = make_transcript_data(randomness, slot, epoch_index);
 				let result = SyncCryptoStore::sr25519_vrf_sign(
 					&**keystore,
 					AuthorityId::ID,
@@ -202,15 +216,15 @@ pub fn claim_slot_using_keys(
 	keystore: &SyncCryptoStorePtr,
 	keys: &[(AuthorityId, usize)],
 ) -> Option<(PreDigest, AuthorityId)> {
-	claim_primary_slot(slot, epoch, epoch.config.c, keystore, &keys).or_else(|| {
+	claim_primary_slot(slot, epoch, epoch.config.c, keystore, keys).or_else(|| {
 		if epoch.config.allowed_slots.is_secondary_plain_slots_allowed() ||
 			epoch.config.allowed_slots.is_secondary_vrf_slots_allowed()
 		{
 			claim_secondary_slot(
 				slot,
-				&epoch,
+				epoch,
 				keys,
-				&keystore,
+				keystore,
 				epoch.config.allowed_slots.is_secondary_vrf_slots_allowed(),
 			)
 		} else {
@@ -230,17 +244,16 @@ fn claim_primary_slot(
 	keystore: &SyncCryptoStorePtr,
 	keys: &[(AuthorityId, usize)],
 ) -> Option<(PreDigest, AuthorityId)> {
-	let Epoch { authorities, randomness, epoch_index, .. } = epoch;
+	let Epoch { authorities, randomness, mut epoch_index, .. } = epoch;
+
+	if epoch.end_slot() <= slot {
+		// Slot doesn't strictly belong to the epoch, create a clone with fixed values.
+		epoch_index = epoch.clone_for_slot(slot).epoch_index;
+	}
 
 	for (authority_id, authority_index) in keys {
-		let transcript = make_transcript(randomness, slot, *epoch_index);
-		let transcript_data = make_transcript_data(randomness, slot, *epoch_index);
-		// Compute the threshold we will use.
-		//
-		// We already checked that authorities contains `key.public()`, so it can't
-		// be empty.  Therefore, this division in `calculate_threshold` is safe.
-		let threshold = calculate_primary_threshold(c, authorities, *authority_index);
-
+		let transcript = make_transcript(randomness, slot, epoch_index);
+		let transcript_data = make_transcript_data(randomness, slot, epoch_index);
 		let result = SyncCryptoStore::sr25519_vrf_sign(
 			&**keystore,
 			AuthorityId::ID,
@@ -253,6 +266,8 @@ fn claim_primary_slot(
 				Ok(inout) => inout,
 				Err(_) => continue,
 			};
+
+			let threshold = calculate_primary_threshold(c, authorities, *authority_index);
 			if check_primary_threshold(&inout, threshold) {
 				let pre_digest = PreDigest::Primary(PrimaryPreDigest {
 					slot,
@@ -272,8 +287,8 @@ fn claim_primary_slot(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use cessp_consensus_rrsc::{AllowedSlots, AuthorityId, RRSCEpochConfiguration};
 	use sc_keystore::LocalKeystore;
+	use cessp_consensus_rrsc::{AllowedSlots, AuthorityId, RRSCEpochConfiguration};	
 	use sp_core::{crypto::Pair as _, sr25519::Pair};
 	use std::sync::Arc;
 
@@ -306,7 +321,7 @@ mod tests {
 
 		assert!(claim_slot(10.into(), &epoch, &keystore).is_none());
 
-		epoch.authorities.push((valid_public_key.clone().into(), 10));
+		epoch.authorities.push((valid_public_key.into(), 10));
 		assert_eq!(claim_slot(10.into(), &epoch, &keystore).unwrap().1, valid_public_key.into());
 	}
 }

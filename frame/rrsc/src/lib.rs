@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,12 +23,13 @@
 
 use codec::{Decode, Encode};
 use frame_support::{
-	dispatch::DispatchResultWithPostInfo,
+	dispatch::{DispatchResultWithPostInfo, Pays},
+	ensure,
 	traits::{
 		ConstU32, DisabledValidators, FindAuthor, Get, KeyOwnerProofSystem, OnTimestampSet,
-		OneSessionHandler, Randomness as RandomnessT,
+		OneSessionHandler,
 	},
-	weights::{Pays, Weight},
+	weights::Weight,
 	BoundedVec, WeakBoundedVec,
 };
 use sp_application_crypto::ByteArray;
@@ -42,16 +43,14 @@ use sp_std::prelude::*;
 
 use cessp_consensus_rrsc::{
 	digests::{NextConfigDescriptor, NextEpochDescriptor, PreDigest},
-	ConsensusLog, Epoch, EquivocationProof, RRSCAuthorityWeight, RRSCEpochConfiguration, Slot,
-	RRSC_ENGINE_ID,
+	AllowedSlots, ConsensusLog, Epoch, EquivocationProof, RRSCAuthorityWeight, RRSCEpochConfiguration,
+	Slot, RRSC_ENGINE_ID,
 };
-// use schnorrkel::{keys::PublicKey, vrf::VRFInOut};
 use sp_consensus_vrf::schnorrkel as sp_schnorrkel;
 
-// use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
-pub use cessp_consensus_rrsc::{
-	AuthorityId, PUBLIC_KEY_LENGTH, RANDOMNESS_LENGTH, VRF_OUTPUT_LENGTH,
-};
+pub use cessp_consensus_rrsc::{AuthorityId, PUBLIC_KEY_LENGTH, RANDOMNESS_LENGTH, VRF_OUTPUT_LENGTH};
+
+const LOG_TARGET: &str = "runtime::rrsc";
 
 mod default_weights;
 mod equivocation;
@@ -66,8 +65,10 @@ mod mock;
 mod tests;
 
 pub use equivocation::{EquivocationHandler, HandleEquivocation, RRSCEquivocationOffence};
+#[allow(deprecated)]
+pub use randomness::CurrentBlockRandomness;
 pub use randomness::{
-	CurrentBlockRandomness, RandomnessFromOneEpochAgo, RandomnessFromTwoEpochsAgo,
+	ParentBlockRandomness, RandomnessFromOneEpochAgo, RandomnessFromTwoEpochsAgo,
 };
 pub use vrf_solver::VrfSolver;
 
@@ -109,8 +110,6 @@ impl EpochChangeTrigger for SameAuthoritiesForever {
 }
 
 const UNDER_CONSTRUCTION_SEGMENT_LENGTH: u32 = 256;
-
-type MaybeRandomness = Option<sp_schnorrkel::Randomness>;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -191,6 +190,8 @@ pub mod pallet {
 		InvalidKeyOwnershipProof,
 		/// A given equivocation report is valid but already previously reported.
 		DuplicateOffenceReport,
+		/// Submitted configuration is invalid.
+		InvalidConfiguration,
 	}
 
 	/// Current epoch index.
@@ -253,7 +254,7 @@ pub mod pallet {
 
 	/// Randomness under construction.
 	///
-	/// We make a tradeoff between storage accesses and list length.
+	/// We make a trade-off between storage accesses and list length.
 	/// We store the under-construction randomness in segments of up to
 	/// `UNDER_CONSTRUCTION_SEGMENT_LENGTH`.
 	///
@@ -277,15 +278,16 @@ pub mod pallet {
 	/// if per-block initialization has already been called for current block.
 	#[pallet::storage]
 	#[pallet::getter(fn initialized)]
-	pub(super) type Initialized<T> = StorageValue<_, MaybeRandomness>;
+	pub(super) type Initialized<T> = StorageValue<_, Option<PreDigest>>;
 
 	/// This field should always be populated during block processing unless
 	/// secondary plain slots are enabled (which don't contain a VRF output).
 	///
-	/// It is set in `on_initialize`, before it will contain the value from the last block.
+	/// It is set in `on_finalize`, before it will contain the value from the last block.
 	#[pallet::storage]
 	#[pallet::getter(fn author_vrf_randomness)]
-	pub(super) type AuthorVrfRandomness<T> = StorageValue<_, MaybeRandomness, ValueQuery>;
+	pub(super) type AuthorVrfRandomness<T> =
+		StorageValue<_, Option<sp_schnorrkel::Randomness>, ValueQuery>;
 
 	/// The block numbers when the last and current epoch have started, respectively `N-1` and
 	/// `N`.
@@ -308,6 +310,7 @@ pub mod pallet {
 	/// The configuration for the current epoch. Should never be `None` as it is initialized in
 	/// genesis.
 	#[pallet::storage]
+	#[pallet::getter(fn epoch_config)]
 	pub(super) type EpochConfig<T> = StorageValue<_, RRSCEpochConfiguration>;
 
 	/// The configuration for the next epoch, `None` if the config will not change
@@ -326,7 +329,7 @@ pub mod pallet {
 	impl<T: Config> GenesisBuild<T> for GenesisConfig {
 		fn build(&self) {
 			SegmentIndex::<T>::put(0);
-			Pallet::<T>::initialize_authorities(&self.authorities);
+			Pallet::<T>::initialize_genesis_authorities(&self.authorities);
 			EpochConfig::<T>::put(
 				self.epoch_config.clone().expect("epoch_config must not be None"),
 			);
@@ -337,19 +340,60 @@ pub mod pallet {
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		/// Initialization
 		fn on_initialize(now: BlockNumberFor<T>) -> Weight {
-			Self::do_initialize(now);
-			0
+			Self::initialize(now);
+			Weight::zero()
 		}
 
 		/// Block finalization
-		fn on_finalize(_n: BlockNumberFor<T>) {
+		fn on_finalize(_now: BlockNumberFor<T>) {
 			// at the end of the block, we can safely include the new VRF output
 			// from this block into the under-construction randomness. If we've determined
 			// that this block was the first in a new epoch, the changeover logic has
 			// already occurred at this point, so the under-construction randomness
 			// will only contain outputs from the right epoch.
-			if let Some(Some(randomness)) = Initialized::<T>::take() {
-				Self::deposit_randomness(&randomness);
+			if let Some(pre_digest) = Initialized::<T>::take().flatten() {
+				let authority_index = pre_digest.authority_index();
+
+				if T::DisabledValidators::is_disabled(authority_index) {
+					panic!(
+						"Validator with index {:?} is disabled and should not be attempting to author blocks.",
+						authority_index,
+					);
+				}
+
+				if let Some((vrf_output, vrf_proof)) = pre_digest.vrf() {
+					let randomness: Option<sp_schnorrkel::Randomness> = Authorities::<T>::get()
+						.get(authority_index as usize)
+						.and_then(|(authority, _)| {
+							sp_schnorrkel::PublicKey::from_bytes(authority.as_slice()).ok()
+						})
+						.and_then(|pubkey| {
+							let current_slot = CurrentSlot::<T>::get();
+
+							let transcript = cessp_consensus_rrsc::make_transcript(
+								&Self::randomness(),
+								current_slot,
+								EpochIndex::<T>::get(),
+							);
+
+							// NOTE: this is verified by the client when importing the block, before
+							// execution. we don't run the verification again here to avoid slowing
+							// down the runtime.
+							debug_assert!(pubkey
+								.vrf_verify(transcript.clone(), vrf_output, vrf_proof)
+								.is_ok());
+
+							vrf_output.0.attach_input_hash(&pubkey, transcript).ok()
+						})
+						.map(|inout| inout.make_bytes(cessp_consensus_rrsc::RRSC_VRF_INOUT_CONTEXT));
+
+					if let Some(randomness) = pre_digest.is_primary().then(|| randomness).flatten()
+					{
+						Self::deposit_randomness(&randomness);
+					}
+
+					AuthorVrfRandomness::<T>::put(randomness);
+				}
 			}
 
 			// remove temporary "environment" entry from storage
@@ -363,6 +407,7 @@ pub mod pallet {
 		/// the equivocation proof and validate the given key ownership proof
 		/// against the extracted offender. If both are valid, the offence will
 		/// be reported.
+		#[pallet::call_index(0)]
 		#[pallet::weight(<T as Config>::WeightInfo::report_equivocation(
 			key_owner_proof.validator_count(),
 		))]
@@ -384,6 +429,7 @@ pub mod pallet {
 		/// block authors will call it (validated in `ValidateUnsigned`), as such
 		/// if the block author is defined it will be defined as the equivocation
 		/// reporter.
+		#[pallet::call_index(1)]
 		#[pallet::weight(<T as Config>::WeightInfo::report_equivocation(
 			key_owner_proof.validator_count(),
 		))]
@@ -405,16 +451,24 @@ pub mod pallet {
 		/// the next call to `enact_epoch_change`. The config will be activated one epoch after.
 		/// Multiple calls to this method will replace any existing planned config change that had
 		/// not been enacted yet.
+		#[pallet::call_index(2)]
 		#[pallet::weight(<T as Config>::WeightInfo::plan_config_change())]
 		pub fn plan_config_change(
 			origin: OriginFor<T>,
 			config: NextConfigDescriptor,
 		) -> DispatchResult {
 			ensure_root(origin)?;
+			match config {
+				NextConfigDescriptor::V1 { c, allowed_slots } => {
+					ensure!(
+						(c.0 != 0 || allowed_slots != AllowedSlots::PrimarySlots) && c.1 != 0,
+						Error::<T>::InvalidConfiguration
+					);
+				},
+			}
 			PendingEpochConfigChange::<T>::put(config);
 			Ok(())
 		}
-
 	}
 
 	#[pallet::validate_unsigned]
@@ -441,11 +495,11 @@ impl<T: Config> FindAuthor<u32> for Pallet<T> {
 		for (id, mut data) in digests.into_iter() {
 			if id == RRSC_ENGINE_ID {
 				let pre_digest: PreDigest = PreDigest::decode(&mut data).ok()?;
-				return Some(pre_digest.authority_index());
+				return Some(pre_digest.authority_index())
 			}
 		}
 
-		return None;
+		None
 	}
 }
 
@@ -458,11 +512,10 @@ impl<T: Config> IsMember<AuthorityId> for Pallet<T> {
 impl<T: Config> pallet_session::ShouldEndSession<T::BlockNumber> for Pallet<T> {
 	fn should_end_session(now: T::BlockNumber) -> bool {
 		// it might be (and it is in current implementation) that session module is calling
-		// should_end_session() from it's own on_initialize() handler
-		// => because pallet_session on_initialize() is called earlier than ours, let's ensure
-		// that we have synced with digest before checking if session should be ended.
-		Self::do_initialize(now);
-
+		// `should_end_session` from it's own `on_initialize` handler, in which case it's
+		// possible that rrsc's own `on_initialize` has not run yet, so let's ensure that we
+		// have initialized the pallet and updated the current slot.
+		Self::initialize(now);
 		Self::should_epoch_change(now)
 	}
 }
@@ -521,6 +574,8 @@ impl<T: Config> Pallet<T> {
 	///
 	/// Typically, this is not handled directly by the user, but by higher-level validator-set
 	/// manager logic like `pallet-session`.
+	///
+	/// This doesn't do anything if `authorities` is empty.
 	pub fn enact_epoch_change(
 		authorities: WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxAuthorities>,
 		next_authorities: WeakBoundedVec<(AuthorityId, RRSCAuthorityWeight), T::MaxAuthorities>,
@@ -529,10 +584,25 @@ impl<T: Config> Pallet<T> {
 		// by the session module to be called before this.
 		debug_assert!(Self::initialized().is_some());
 
-		// Update epoch index
-		let epoch_index = EpochIndex::<T>::get()
-			.checked_add(1)
-			.expect("epoch indices will never reach 2^64 before the death of the universe; qed");
+		if authorities.is_empty() {
+			log::warn!(target: LOG_TARGET, "Ignoring empty epoch changes.");
+
+			return
+		}
+
+		// Update epoch index.
+		//
+		// NOTE: we figure out the epoch index from the slot, which may not
+		// necessarily be contiguous if the chain was offline for more than
+		// `T::EpochDuration` slots. When skipping from epoch N to e.g. N+4, we
+		// will be using the randomness and authorities for that epoch that had
+		// been previously announced for epoch N+1, and the randomness collected
+		// during the current epoch (N) will be used for epoch N+5.
+		let epoch_index = cessp_consensus_rrsc::epoch_index(
+			CurrentSlot::<T>::get(),
+			GenesisSlot::<T>::get(),
+			T::EpochDuration::get(),
+		);
 
 		EpochIndex::<T>::put(epoch_index);
 		Authorities::<T>::put(authorities.clone());
@@ -579,11 +649,16 @@ impl<T: Config> Pallet<T> {
 		}
 	}
 
-	/// Finds the start slot of the current epoch. only guaranteed to
-	/// give correct results after `do_initialize` of the first block
-	/// in the chain (as its result is based off of `GenesisSlot`).
+	/// Finds the start slot of the current epoch.
+	///
+	/// Only guaranteed to give correct results after `initialize` of the first
+	/// block in the chain (as its result is based off of `GenesisSlot`).
 	pub fn current_epoch_start() -> Slot {
-		Self::epoch_start(EpochIndex::<T>::get())
+		cessp_consensus_rrsc::epoch_start_slot(
+			EpochIndex::<T>::get(),
+			GenesisSlot::<T>::get(),
+			T::EpochDuration::get(),
+		)
 	}
 
 	/// Produces information about the current epoch.
@@ -607,9 +682,15 @@ impl<T: Config> Pallet<T> {
 			 if u64 is not enough we should crash for safety; qed.",
 		);
 
+		let start_slot = cessp_consensus_rrsc::epoch_start_slot(
+			next_epoch_index,
+			GenesisSlot::<T>::get(),
+			T::EpochDuration::get(),
+		);
+
 		Epoch {
 			epoch_index: next_epoch_index,
-			start_slot: Self::epoch_start(next_epoch_index),
+			start_slot,
 			duration: T::EpochDuration::get(),
 			authorities: NextAuthorities::<T>::get().to_vec(),
 			randomness: NextRandomness::<T>::get(),
@@ -621,20 +702,9 @@ impl<T: Config> Pallet<T> {
 		}
 	}
 
-	fn epoch_start(epoch_index: u64) -> Slot {
-		// (epoch_index * epoch_duration) + genesis_slot
-
-		const PROOF: &str = "slot number is u64; it should relate in some way to wall clock time; \
-							 if u64 is not enough we should crash for safety; qed.";
-
-		let epoch_start = epoch_index.checked_mul(T::EpochDuration::get()).expect(PROOF);
-
-		epoch_start.checked_add(*GenesisSlot::<T>::get()).expect(PROOF).into()
-	}
-
-	pub fn deposit_consensus<U: Encode>(new: U) {
+	fn deposit_consensus<U: Encode>(new: U) {
 		let log = DigestItem::Consensus(RRSC_ENGINE_ID, new.encode());
-		<frame_system::Pallet<T>>::deposit_log(log.into())
+		<frame_system::Pallet<T>>::deposit_log(log)
 	}
 
 	fn deposit_randomness(randomness: &sp_schnorrkel::Randomness) {
@@ -648,7 +718,7 @@ impl<T: Config> Pallet<T> {
 			let segment_idx = segment_idx + 1;
 			let bounded_randomness =
 				BoundedVec::<_, ConstU32<UNDER_CONSTRUCTION_SEGMENT_LENGTH>>::try_from(vec![
-					randomness.clone(),
+					*randomness,
 				])
 				.expect("UNDER_CONSTRUCTION_SEGMENT_LENGTH >= 1");
 			UnderConstruction::<T>::insert(&segment_idx, bounded_randomness);
@@ -656,15 +726,41 @@ impl<T: Config> Pallet<T> {
 		}
 	}
 
-	fn do_initialize(now: T::BlockNumber) {
-		// since do_initialize can be called twice (if session module is present)
-		// => let's ensure that we only modify the storage once per block
+	fn initialize_genesis_authorities(authorities: &[(AuthorityId, RRSCAuthorityWeight)]) {
+		if !authorities.is_empty() {
+			assert!(Authorities::<T>::get().is_empty(), "Authorities are already initialized!");
+			let bounded_authorities =
+				WeakBoundedVec::<_, T::MaxAuthorities>::try_from(authorities.to_vec())
+					.expect("Initial number of authorities should be lower than T::MaxAuthorities");
+			Authorities::<T>::put(&bounded_authorities);
+			NextAuthorities::<T>::put(&bounded_authorities);
+		}
+	}
+
+	fn initialize_genesis_epoch(genesis_slot: Slot) {
+		GenesisSlot::<T>::put(genesis_slot);
+		debug_assert_ne!(*GenesisSlot::<T>::get(), 0);
+
+		// deposit a log because this is the first block in epoch #0
+		// we use the same values as genesis because we haven't collected any
+		// randomness yet.
+		let next = NextEpochDescriptor {
+			authorities: Self::authorities().to_vec(),
+			randomness: Self::randomness(),
+		};
+
+		Self::deposit_consensus(ConsensusLog::NextEpochData(next));
+	}
+
+	fn initialize(now: T::BlockNumber) {
+		// since `initialize` can be called twice (e.g. if session module is present)
+		// let's ensure that we only do the initialization once per block
 		let initialized = Self::initialized().is_some();
 		if initialized {
-			return;
+			return
 		}
 
-		let maybe_pre_digest: Option<PreDigest> =
+		let pre_digest =
 			<frame_system::Pallet<T>>::digest()
 				.logs
 				.iter()
@@ -678,29 +774,16 @@ impl<T: Config> Pallet<T> {
 				})
 				.next();
 
-		let is_primary = matches!(maybe_pre_digest, Some(PreDigest::Primary(..)));
+		if let Some(ref pre_digest) = pre_digest {
+			// the slot number of the current block being initialized
+			let current_slot = pre_digest.slot();
 
-		let maybe_randomness: MaybeRandomness = maybe_pre_digest.and_then(|digest| {
 			// on the first non-zero block (i.e. block #1)
 			// this is where the first epoch (epoch #0) actually starts.
 			// we need to adjust internal storage accordingly.
 			if *GenesisSlot::<T>::get() == 0 {
-				GenesisSlot::<T>::put(digest.slot());
-				debug_assert_ne!(*GenesisSlot::<T>::get(), 0);
-
-				// deposit a log because this is the first block in epoch #0
-				// we use the same values as genesis because we haven't collected any
-				// randomness yet.
-				let next = NextEpochDescriptor {
-					authorities: Self::authorities().to_vec(),
-					randomness: Self::randomness(),
-				};
-
-				Self::deposit_consensus(ConsensusLog::NextEpochData(next))
+				Self::initialize_genesis_epoch(current_slot)
 			}
-
-			// the slot number of the current block being initialized
-			let current_slot = digest.slot();
 
 			// how many slots were skipped between current and last block
 			let lateness = current_slot.saturating_sub(CurrentSlot::<T>::get() + 1);
@@ -708,48 +791,12 @@ impl<T: Config> Pallet<T> {
 
 			Lateness::<T>::put(lateness);
 			CurrentSlot::<T>::put(current_slot);
+		}
 
-			let authority_index = digest.authority_index();
-
-			if T::DisabledValidators::is_disabled(authority_index) {
-				panic!(
-					"Validator with index {:?} is disabled and should not be attempting to author blocks.",
-					authority_index,
-				);
-			}
-
-			// Extract out the VRF output if we have it
-			digest.vrf_output().and_then(|vrf_output| {
-				// Reconstruct the bytes of VRFInOut using the authority id.
-				Authorities::<T>::get()
-					.get(authority_index as usize)
-					.and_then(|author| {
-						sp_schnorrkel::PublicKey::from_bytes(author.0.as_slice()).ok()
-					})
-					.and_then(|pubkey| {
-						let transcript = cessp_consensus_rrsc::make_transcript(
-							&Self::randomness(),
-							current_slot,
-							EpochIndex::<T>::get(),
-						);
-
-						vrf_output.0.attach_input_hash(&pubkey, transcript).ok()
-					})
-					.map(|inout| inout.make_bytes(&cessp_consensus_rrsc::RRSC_VRF_INOUT_CONTEXT))
-			})
-		});
-
-		// For primary VRF output we place it in the `Initialized` storage
-		// item and it'll be put onto the under-construction randomness later,
-		// once we've decided which epoch this block is in.
-		Initialized::<T>::put(if is_primary { maybe_randomness } else { None });
-
-		// Place either the primary or secondary VRF output into the
-		// `AuthorVrfRandomness` storage item.
-		AuthorVrfRandomness::<T>::put(maybe_randomness);
+		Initialized::<T>::put(pre_digest);
 
 		// enact epoch change, if necessary.
-		T::EpochChangeTrigger::trigger::<T>(now)
+		T::EpochChangeTrigger::trigger::<T>(now);
 	}
 
 	/// Call this function exactly once when an epoch changes, to update the
@@ -769,17 +816,6 @@ impl<T: Config> Pallet<T> {
 		);
 		NextRandomness::<T>::put(&next_randomness);
 		this_randomness
-	}
-
-	pub fn initialize_authorities(authorities: &[(AuthorityId, RRSCAuthorityWeight)]) {
-		if !authorities.is_empty() {
-			assert!(Authorities::<T>::get().is_empty(), "Authorities are already initialized!");
-			let bounded_authorities =
-				WeakBoundedVec::<_, T::MaxAuthorities>::try_from(authorities.to_vec())
-					.expect("Initial number of authorities should be lower than T::MaxAuthorities");
-			Authorities::<T>::put(&bounded_authorities);
-			NextAuthorities::<T>::put(&bounded_authorities);
-		}
 	}
 
 	fn do_report_equivocation(
@@ -804,7 +840,7 @@ impl<T: Config> Pallet<T> {
 		// check that the slot number is consistent with the session index
 		// in the key ownership proof (i.e. slot is for that epoch)
 		if epoch_index != session_index {
-			return Err(Error::<T>::InvalidKeyOwnershipProof.into());
+			return Err(Error::<T>::InvalidKeyOwnershipProof.into())
 		}
 
 		// check the membership proof and extract the offender's id
@@ -841,7 +877,6 @@ impl<T: Config> Pallet<T> {
 		)
 		.ok()
 	}
-
 }
 
 impl<T: Config> OnTimestampSet<T::Moment> for Pallet<T> {
@@ -901,7 +936,7 @@ impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 		I: Iterator<Item = (&'a T::AccountId, AuthorityId)>,
 	{
 		let authorities = validators.map(|(_, k)| (k, 1)).collect::<Vec<_>>();
-		Self::initialize_authorities(&authorities);
+		Self::initialize_genesis_authorities(&authorities);
 	}
 
 	fn on_new_session<'a, I: 'a>(_changed: bool, validators: I, queued_validators: I)
@@ -998,6 +1033,6 @@ pub mod migrations {
 
 		writes += 3;
 
-		T::DbWeight::get().writes(writes) + T::DbWeight::get().reads(reads)
+		T::DbWeight::get().reads_writes(reads, writes)
 	}
 }

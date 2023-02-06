@@ -17,11 +17,12 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 //! Verification for RRSC headers.
-use super::{
+use crate::{
 	authorship::{calculate_primary_threshold, check_primary_threshold, secondary_slot_author},
-	rrsc_err, find_pre_digest, BlockT, Epoch, Error,
+	rrsc_err, find_pre_digest, BlockT, Epoch, Error, LOG_TARGET,
 };
 use log::{debug, trace};
+use sc_consensus_epochs::Epoch as EpochT;
 use sc_consensus_slots::CheckedHeader;
 use cessp_consensus_rrsc::{
 	digests::{
@@ -67,7 +68,7 @@ pub(super) fn check_header<B: BlockT + Sized>(
 	let authorities = &epoch.authorities;
 	let pre_digest = pre_digest.map(Ok).unwrap_or_else(|| find_pre_digest::<B>(&header))?;
 
-	trace!(target: "rrsc", "Checking header");
+	trace!(target: LOG_TARGET, "Checking header");
 	let seal = header
 		.digest_mut()
 		.pop()
@@ -93,36 +94,39 @@ pub(super) fn check_header<B: BlockT + Sized>(
 
 	match &pre_digest {
 		PreDigest::Primary(primary) => {
-			debug!(target: "rrsc",
+			debug!(
+				target: LOG_TARGET,
 				"Verifying primary block #{} at slot: {}",
 				header.number(),
 				primary.slot,
 			);
 
-			check_primary_header::<B>(pre_hash, primary, sig, &epoch, epoch.config.c)?;
+			check_primary_header::<B>(pre_hash, primary, sig, epoch, epoch.config.c)?;
 		},
 		PreDigest::SecondaryPlain(secondary)
 			if epoch.config.allowed_slots.is_secondary_plain_slots_allowed() =>
 		{
-			debug!(target: "rrsc",
+			debug!(
+				target: LOG_TARGET,
 				"Verifying secondary plain block #{} at slot: {}",
 				header.number(),
 				secondary.slot,
 			);
 
-			check_secondary_plain_header::<B>(pre_hash, secondary, sig, &epoch)?;
-		}
+			check_secondary_plain_header::<B>(pre_hash, secondary, sig, epoch)?;
+		},
 		PreDigest::SecondaryVRF(secondary)
 			if epoch.config.allowed_slots.is_secondary_vrf_slots_allowed() =>
 		{
-			debug!(target: "rrsc",
+			debug!(
+				target: LOG_TARGET,
 				"Verifying secondary VRF block #{} at slot: {}",
 				header.number(),
 				secondary.slot,
 			);
 
-			check_secondary_vrf_header::<B>(pre_hash, secondary, sig, &epoch)?;
-		}
+			check_secondary_vrf_header::<B>(pre_hash, secondary, sig, epoch)?;
+		},
 		_ => return Err(rrsc_err(Error::SecondarySlotAssignmentsDisabled)),
 	}
 
@@ -152,10 +156,16 @@ fn check_primary_header<B: BlockT + Sized>(
 	c: (u64, u64),
 ) -> Result<(), Error<B>> {
 	let author = &epoch.authorities[pre_digest.authority_index as usize].0;
+	let mut epoch_index = epoch.epoch_index;
 
-	if AuthorityPair::verify(&signature, pre_hash, &author) {
+	if epoch.end_slot() <= pre_digest.slot {
+		// Slot doesn't strictly belong to this epoch, create a clone with fixed values.
+		epoch_index = epoch.clone_for_slot(pre_digest.slot).epoch_index;
+	}
+
+	if AuthorityPair::verify(&signature, pre_hash, author) {
 		let (inout, _) = {
-			let transcript = make_transcript(&epoch.randomness, pre_digest.slot, epoch.epoch_index);
+			let transcript = make_transcript(&epoch.randomness, pre_digest.slot, epoch_index);
 
 			schnorrkel::PublicKey::from_bytes(author.as_slice())
 				.and_then(|p| {
@@ -191,7 +201,7 @@ fn check_secondary_plain_header<B: BlockT>(
 	// chain state.
 	let expected_author =
 		secondary_slot_author(pre_digest.slot, &epoch.authorities, epoch.randomness)
-			.ok_or_else(|| Error::NoSecondaryAuthorExpected)?;
+			.ok_or(Error::NoSecondaryAuthorExpected)?;
 
 	let author = &epoch.authorities[pre_digest.authority_index as usize].0;
 
@@ -217,7 +227,7 @@ fn check_secondary_vrf_header<B: BlockT>(
 	// chain state.
 	let expected_author =
 		secondary_slot_author(pre_digest.slot, &epoch.authorities, epoch.randomness)
-			.ok_or_else(|| Error::NoSecondaryAuthorExpected)?;
+			.ok_or(Error::NoSecondaryAuthorExpected)?;
 
 	let author = &epoch.authorities[pre_digest.authority_index as usize].0;
 
@@ -225,8 +235,14 @@ fn check_secondary_vrf_header<B: BlockT>(
 		return Err(Error::InvalidAuthor(expected_author.clone(), author.clone()))
 	}
 
+	let mut epoch_index = epoch.epoch_index;
+	if epoch.end_slot() <= pre_digest.slot {
+		// Slot doesn't strictly belong to this epoch, create a clone with fixed values.
+		epoch_index = epoch.clone_for_slot(pre_digest.slot).epoch_index;
+	}
+
 	if AuthorityPair::verify(&signature, pre_hash.as_ref(), author) {
-		let transcript = make_transcript(&epoch.randomness, pre_digest.slot, epoch.epoch_index);
+		let transcript = make_transcript(&epoch.randomness, pre_digest.slot, epoch_index);
 
 		schnorrkel::PublicKey::from_bytes(author.as_slice())
 			.and_then(|p| p.vrf_verify(transcript, &pre_digest.vrf_output, &pre_digest.vrf_proof))
