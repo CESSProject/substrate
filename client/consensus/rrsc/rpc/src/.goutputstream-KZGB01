@@ -202,9 +202,9 @@ where
 		.epoch_data_for_child_of(
 			descendent_query(&**client),
 			&parent.hash(),
-			*parent.number(),
+			parent.number().clone(),
 			slot.into(),
-			|slot| Epoch::genesis(rrsc_config, slot),
+			|slot| Epoch::genesis(rrsc_config.genesis_config(), slot),
 		)
 		.map_err(|e| Error::Consensus(ConsensusError::ChainLookup(e.to_string())))?
 		.ok_or(Error::Consensus(ConsensusError::InvalidAuthoritiesSet))
@@ -223,7 +223,8 @@ mod tests {
 		TestClientBuilderExt,
 	};
 
-	use cessc_consensus_rrsc::{block_import, AuthorityPair};
+	use jsonrpc_core::IoHandler;
+	use cessc_consensus_rrsc::{block_import, AuthorityPair, Config};
 	use std::sync::Arc;
 
 	/// creates keystore backed by a temp file
@@ -239,43 +240,53 @@ mod tests {
 		(keystore, keystore_path)
 	}
 
-	fn test_rrsc_rpc_module(
+	fn test_rrsc_rpc_handler(
 		deny_unsafe: DenyUnsafe,
-	) -> RRSC<Block, TestClient, sc_consensus::LongestChain<Backend, Block>> {
+	) -> RRSCRpcHandler<Block, TestClient, sc_consensus::LongestChain<Backend, Block>> {
 		let builder = TestClientBuilder::new();
 		let (client, longest_chain) = builder.build_with_longest_chain();
 		let client = Arc::new(client);
-		let config = sc_consensus_rrsc::configuration(&*client).expect("config available");
+		let config = Config::get(&*client).expect("config available");
 		let (_, link) = block_import(config.clone(), client.clone(), client.clone())
 			.expect("can initialize block-import");
 
 		let epoch_changes = link.epoch_changes().clone();
 		let keystore = create_temp_keystore::<AuthorityPair>(Sr25519Keyring::Alice).0;
 
-		RRSC::new(client.clone(), epoch_changes, keystore, config, longest_chain, deny_unsafe)
+		RRSCRpcHandler::new(
+			client.clone(),
+			epoch_changes,
+			keystore,
+			config,
+			longest_chain,
+			deny_unsafe,
+		)
 	}
 
-	#[tokio::test]
-	async fn epoch_authorship_works() {
-		let rrsc_rpc = test_rrsc_rpc_module(DenyUnsafe::No);
-		let api = rrsc_rpc.into_rpc();
+	#[test]
+	fn epoch_authorship_works() {
+		let handler = test_rrsc_rpc_handler(DenyUnsafe::No);
+		let mut io = IoHandler::new();
 
+		io.extend_with(RRSCApi::to_delegate(handler));
 		let request = r#"{"jsonrpc":"2.0","method":"rrsc_epochAuthorship","params": [],"id":1}"#;
-		let (response, _) = api.raw_json_request(request).await.unwrap();
-		let expected = r#"{"jsonrpc":"2.0","result":{"5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY":{"primary":[0],"secondary":[1,2,4],"secondary_vrf":[]}},"id":1}"#;
+		let response = r#"{"jsonrpc":"2.0","result":{"5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY":{"primary":[0],"secondary":[1,2,4],"secondary_vrf":[]}},"id":1}"#;
 
-		assert_eq!(&response.result, expected);
+		assert_eq!(Some(response.into()), io.handle_request_sync(request));
 	}
 
-	#[tokio::test]
-	async fn epoch_authorship_is_unsafe() {
-		let rrsc_rpc = test_rrsc_rpc_module(DenyUnsafe::Yes);
-		let api = rrsc_rpc.into_rpc();s
+	#[test]
+	fn epoch_authorship_is_unsafe() {
+		let handler = test_rrsc_rpc_handler(DenyUnsafe::Yes);
+		let mut io = IoHandler::new();
 
-		let request = r#"{"jsonrpc":"2.0","method":"rrsc_epochAuthorship","params":[],"id":1}"#;
-		let (response, _) = api.raw_json_request(request).await.unwrap();
-		let expected = r#"{"jsonrpc":"2.0","error":{"code":-32601,"message":"RPC call is unsafe to be called externally"},"id":1}"#;
+		io.extend_with(RRSCApi::to_delegate(handler));
+		let request = r#"{"jsonrpc":"2.0","method":"rrsc_epochAuthorship","params": [],"id":1}"#;
 
-		assert_eq!(&response.result, expected);
+		let response = io.handle_request_sync(request).unwrap();
+		let mut response: serde_json::Value = serde_json::from_str(&response).unwrap();
+		let error: RpcError = serde_json::from_value(response["error"].take()).unwrap();
+
+		assert_eq!(error, RpcError::method_not_found())
 	}
 }

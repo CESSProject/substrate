@@ -1,10 +1,13 @@
-use frame_election_provider_support::{Assignment, NposSolver};
-use frame_support::traits::{Get, Randomness, ValidatorCredits};
+use frame_election_provider_support::{Assignment, NposSolver, WeightInfo as NposWeightInfo};
+use frame_support::{
+	traits::{Get, Randomness, ValidatorCredits},
+	weights::Weight
+};
 use sp_std::prelude::*;
 use sp_npos_elections::{
 	ElectionResult, ExtendedBalance, IdentifierT, PerThing128, VoteWeight,
 };
-use super::{Config, CurrentBlockRandomness, EpochIndex};
+use super::{Config, ParentBlockRandomness, EpochIndex};
 use codec::{alloc::string::ToString, Decode};
 
 /// A wrapper for elect by vrf that implements [`NposSolver`].
@@ -75,6 +78,10 @@ impl<
 
 		Ok(ElectionResult { winners, assignments })
 	}
+
+	fn weight<W: NposWeightInfo>(voters: u32, targets: u32, vote_degree: u32) -> Weight {
+		W::vrf_solver(voters, targets, vote_degree)
+	}
 }
 
 impl <
@@ -87,7 +94,7 @@ Balancing: Get<Option<(usize, ExtendedBalance)>>,
 	pub fn random_number(context: &str,authority_index: &usize) -> u32 {
 		let mut b_context = context.to_string();
 		b_context.push_str(authority_index.to_string().as_str());
-		let (hash, _) = CurrentBlockRandomness::<T>::random(&b_context.as_bytes());
+		let (hash, _) = ParentBlockRandomness::<T>::random(&b_context.as_bytes());
 		let hash = 	match hash {
 				Some(h) => h,
 				None => T::Hash::default(),

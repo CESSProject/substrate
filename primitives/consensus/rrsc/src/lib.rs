@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -137,7 +137,7 @@ pub enum ConsensusLog {
 
 /// Configuration data used by the RRSC consensus engine.
 #[derive(Clone, PartialEq, Eq, Encode, Decode, RuntimeDebug)]
-pub struct RRSCGenesisConfigurationV1 {
+pub struct RRSCConfigurationV1 {
 	/// The slot duration in milliseconds for RRSC. Currently, only
 	/// the value provided by this type at genesis will be used.
 	///
@@ -156,7 +156,7 @@ pub struct RRSCGenesisConfigurationV1 {
 	pub c: (u64, u64),
 
 	/// The authorities for the genesis epoch.
-	pub genesis_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
+	pub authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
 
 	/// The randomness for the genesis epoch.
 	pub randomness: Randomness,
@@ -166,13 +166,13 @@ pub struct RRSCGenesisConfigurationV1 {
 	pub secondary_slots: bool,
 }
 
-impl From<RRSCGenesisConfigurationV1> for RRSCGenesisConfiguration {
-	fn from(v1: RRSCGenesisConfigurationV1) -> Self {
+impl From<RRSCConfigurationV1> for RRSCConfiguration {
+	fn from(v1: RRSCConfigurationV1) -> Self {
 		Self {
 			slot_duration: v1.slot_duration,
 			epoch_length: v1.epoch_length,
 			c: v1.c,
-			genesis_authorities: v1.genesis_authorities,
+			authorities: v1.authorities,
 			randomness: v1.randomness,
 			allowed_slots: if v1.secondary_slots {
 				AllowedSlots::PrimaryAndSecondaryPlainSlots
@@ -185,7 +185,7 @@ impl From<RRSCGenesisConfigurationV1> for RRSCGenesisConfiguration {
 
 /// Configuration data used by the RRSC consensus engine.
 #[derive(Clone, PartialEq, Eq, Encode, Decode, RuntimeDebug)]
-pub struct RRSCGenesisConfiguration {
+pub struct RRSCConfiguration {
 	/// The slot duration in milliseconds for RRSC. Currently, only
 	/// the value provided by this type at genesis will be used.
 	///
@@ -203,14 +203,21 @@ pub struct RRSCGenesisConfiguration {
 	/// of a slot being empty.
 	pub c: (u64, u64),
 
-	/// The authorities for the genesis epoch.
-	pub genesis_authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
+	/// The authorities
+	pub authorities: Vec<(AuthorityId, RRSCAuthorityWeight)>,
 
-	/// The randomness for the genesis epoch.
+	/// The randomness
 	pub randomness: Randomness,
 
 	/// Type of allowed slots.
 	pub allowed_slots: AllowedSlots,
+}
+
+impl RRSCConfiguration {
+	/// Convenience method to get the slot duration as a `SlotDuration` value.
+	pub fn slot_duration(&self) -> SlotDuration {
+		SlotDuration::from_millis(self.slot_duration)
+	}
 }
 
 /// Types of allowed slots.
@@ -237,7 +244,7 @@ impl AllowedSlots {
 	}
 }
 
-/// Configuration data used by the RRSC consensus engine.
+/// Configuration data used by the RRSC consensus engine that may change with epochs.
 #[derive(Clone, PartialEq, Eq, Encode, Decode, RuntimeDebug, MaxEncodedLen, TypeInfo)]
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct RRSCEpochConfiguration {
@@ -357,12 +364,12 @@ sp_api::decl_runtime_apis! {
 	/// API necessary for block authorship with RRSC.
 	#[api_version(2)]
 	pub trait RRSCApi {
-		/// Return the genesis configuration for RRSC. The configuration is only read on genesis.
-		fn configuration() -> RRSCGenesisConfiguration;
+		/// Return the configuration for RRSC.
+		fn configuration() -> RRSCConfiguration;
 
 		/// Return the configuration for RRSC. Version 1.
 		#[changed_in(2)]
-		fn configuration() -> RRSCGenesisConfigurationV1;
+		fn configuration() -> RRSCConfigurationV1;
 
 		/// Returns the slot that started the current epoch.
 		fn current_epoch_start() -> Slot;

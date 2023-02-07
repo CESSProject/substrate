@@ -17,6 +17,8 @@
 
 //! Benchmarks for the RRSC Pallet.
 
+#![cfg(feature = "runtime-benchmarks")]
+
 use super::*;
 use frame_benchmarking::benchmarks;
 

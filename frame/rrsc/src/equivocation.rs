@@ -48,7 +48,7 @@ use sp_staking::{
 };
 use sp_std::prelude::*;
 
-use crate::{Call, Config, Pallet};
+use crate::{Call, Config, Pallet, LOG_TARGET};
 
 /// A trait with utility methods for handling equivocation reports in RRSC.
 /// The trait provides methods for reporting an offence triggered by a valid
@@ -161,15 +161,9 @@ where
 		};
 
 		match SubmitTransaction::<T, Call<T>>::submit_unsigned_transaction(call.into()) {
-			Ok(()) => log::info!(
-				target: "runtime::rrsc",
-				"Submitted RRSC equivocation report.",
-			),
-			Err(e) => log::error!(
-				target: "runtime::rrsc",
-				"Error submitting equivocation report: {:?}",
-				e,
-			),
+			Ok(()) => log::info!(target: LOG_TARGET, "Submitted RRSC equivocation report.",),
+			Err(e) =>
+				log::error!(target: LOG_TARGET, "Error submitting equivocation report: {:?}", e,),
 		}
 
 		Ok(())
@@ -192,7 +186,7 @@ impl<T: Config> Pallet<T> {
 				TransactionSource::Local | TransactionSource::InBlock => { /* allowed */ },
 				_ => {
 					log::warn!(
-						target: "runtime::rrsc",
+						target: LOG_TARGET,
 						"rejecting unsigned report equivocation transaction because it is not local/in-block.",
 					);
 
@@ -284,9 +278,9 @@ impl<FullIdentification: Clone> Offence<FullIdentification>
 		self.slot
 	}
 
-	fn slash_fraction(offenders_count: u32, validator_set_count: u32) -> Perbill {
+	fn slash_fraction(&self, offenders_count: u32) -> Perbill {
 		// the formula is min((3k / n)^2, 1)
-		let x = Perbill::from_rational(3 * offenders_count, validator_set_count);
+		let x = Perbill::from_rational(3 * offenders_count, self.validator_set_count);
 		// _ ^ 2
 		x.square()
 	}
