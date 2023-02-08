@@ -270,7 +270,7 @@ mod tests {
 	#[tokio::test]
 	async fn epoch_authorship_is_unsafe() {
 		let rrsc_rpc = test_rrsc_rpc_module(DenyUnsafe::Yes);
-		let api = rrsc_rpc.into_rpc();s
+		let api = rrsc_rpc.into_rpc();
 
 		let request = r#"{"jsonrpc":"2.0","method":"rrsc_epochAuthorship","params":[],"id":1}"#;
 		let (response, _) = api.raw_json_request(request).await.unwrap();
