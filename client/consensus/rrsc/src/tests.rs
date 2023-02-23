@@ -31,7 +31,7 @@ use sc_consensus::{BoxBlockImport, BoxJustificationImport};
 use sc_consensus_slots::BackoffAuthoringOnFinalizedHeadLagging;
 use sc_network_test::{Block as TestBlock, *};
 use sp_application_crypto::key_types::RRSC;
-use sp_consensus::{AlwaysCanAuthor, DisableProofRecording, NoNetwork as DummyOracle, Proposal};
+use sp_consensus::{DisableProofRecording, NoNetwork as DummyOracle, Proposal};
 use cessp_consensus_rrsc::{
 	inherents::InherentDataProvider, make_transcript, make_transcript_data, AllowedSlots,
 	AuthorityPair, Slot,

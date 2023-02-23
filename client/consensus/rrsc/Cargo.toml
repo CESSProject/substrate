@@ -47,8 +47,6 @@ sp-io = { version = "7.0.0", path = "../../../primitives/io" }
 sp-keystore = { version = "0.13.0", path = "../../../primitives/keystore" }
 sp-runtime = { version = "7.0.0", path = "../../../primitives/runtime" }
 sp-version = { version = "5.0.0", path = "../../../primitives/version" }
-pallet-rrsc = { version = "4.0.0-dev", path = "../../../frame/rrsc" }
-frame-support = { version = "4.0.0-dev", path = "../../../frame/support" }
 
 [dev-dependencies]
 rand_chacha = "0.2.2"

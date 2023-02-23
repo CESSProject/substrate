@@ -181,7 +181,7 @@ fn no_author_vrf_output_for_secondary_plain() {
 		System::initialize(&1, &Default::default(), &secondary_plain_pre_digest);
 		assert_eq!(RRSC::author_vrf_randomness(), None);
 
-		RRSC::do_initialize(1);
+		RRSC::initialize(1);
 		assert_eq!(RRSC::author_vrf_randomness(), None);
 
 		RRSC::on_finalize(1);

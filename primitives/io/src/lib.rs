@@ -43,7 +43,7 @@ use sp_core::{
 	traits::TaskExecutorExt,
 };
 #[cfg(feature = "std")]
-use sp_keystore::{KeystoreExt, SyncCryptoStore, vrf::VRFTranscriptData};
+use sp_keystore::{KeystoreExt, SyncCryptoStore};
 
 use sp_core::{
 	crypto::KeyTypeId,

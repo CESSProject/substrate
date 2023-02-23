@@ -27,7 +27,7 @@ use frame_support::{
 	ensure,
 	traits::{
 		ConstU32, DisabledValidators, FindAuthor, Get, KeyOwnerProofSystem, OnTimestampSet,
-		OneSessionHandler, Randomness as RandomnessT,
+		OneSessionHandler,
 	},
 	weights::Weight,
 	BoundedVec, WeakBoundedVec,
@@ -43,8 +43,8 @@ use sp_std::prelude::*;
 
 use cessp_consensus_rrsc::{
 	digests::{NextConfigDescriptor, NextEpochDescriptor, PreDigest},
-	AllowedSlots, ConsensusLog, Epoch, EquivocationProof, RRSCAuthorityWeight, RRSCEpochConfiguration, Slot,
-	RRSC_ENGINE_ID,
+	AllowedSlots, RRSCAuthorityWeight, RRSCEpochConfiguration, ConsensusLog, Epoch,
+	EquivocationProof, Slot, RRSC_ENGINE_ID,
 };
 use sp_consensus_vrf::schnorrkel as sp_schnorrkel;
 
