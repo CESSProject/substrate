@@ -134,7 +134,7 @@ fn current_slot_is_processed_on_initialization() {
 
 fn test_author_vrf_output<F>(make_pre_digest: F)
 where
-	F: Fn(sp_consensus_rrsc::AuthorityIndex, Slot, VRFOutput, VRFProof) -> sp_runtime::Digest,
+	F: Fn(cessp_consensus_rrsc::AuthorityIndex, Slot, VRFOutput, VRFProof) -> sp_runtime::Digest,
 {
 	let (pairs, mut ext) = new_test_ext_with_pairs(1);
 
