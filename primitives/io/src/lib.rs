@@ -798,8 +798,22 @@ pub trait Crypto {
 		}
 	}
 
-	fn cess_ed25519_verify(sig: &ed25519::Signature, msg: &[u8], pub_key: &ed25519::Public) -> bool {
+	fn cess_ed25519_verify_1(sig: &ed25519::Signature, msg: &[u8], pub_key: &ed25519::Public) -> bool {
 		ed25519::Pair::verify(sig, msg, pub_key)
+	}
+
+	fn cess_ed25519_verify_2(sig: &ed25519::Signature, msg: &[u8], pub_key: &ed25519::Public) -> bool {
+		use ed25519_dalek::Verifier;
+		
+		let public_key = if let Ok(vk) = ed25519_dalek::PublicKey::from_bytes(&pub_key.0) {
+			vk
+		} else {
+			return false
+		};
+
+		let sig = ed25519_dalek::Signature::from(sig.0);
+
+		public_key.verify(msg, &sig).is_ok()
 	}
 
 	/// Register a `ed25519` signature for batch verification.
