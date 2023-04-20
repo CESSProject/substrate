@@ -782,7 +782,7 @@ pub trait Crypto {
 			.unwrap_or_default()
 		{
 			use ed25519_dalek::Verifier;
-
+			log::info!("select 1");
 			let public_key = if let Ok(vk) = ed25519_dalek::PublicKey::from_bytes(&pub_key.0) {
 				vk
 			} else {
@@ -793,8 +793,13 @@ pub trait Crypto {
 
 			public_key.verify(msg, &sig).is_ok()
 		} else {
+			log::info!("select 2");
 			ed25519::Pair::verify(sig, msg, pub_key)
 		}
+	}
+
+	fn cess_ed25519_verify(sig: &ed25519::Signature, msg: &[u8], pub_key: &ed25519::Public) -> bool {
+		ed25519::Pair::verify(sig, msg, pub_key)
 	}
 
 	/// Register a `ed25519` signature for batch verification.
