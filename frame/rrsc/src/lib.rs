@@ -69,7 +69,7 @@ pub use equivocation::{EquivocationHandler, HandleEquivocation, RRSCEquivocation
 pub use randomness::{
 	CurrentBlockRandomness, RandomnessFromOneEpochAgo, RandomnessFromTwoEpochsAgo,
 };
-pub use vrf_solver::VrfSolver;
+pub use vrf_solver::{VrfSolver, VrfSloverConfig};
 
 pub use pallet::*;
 

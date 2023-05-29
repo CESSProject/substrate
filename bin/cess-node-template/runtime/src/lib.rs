@@ -53,7 +53,7 @@ pub use frame_support::{
 	pallet_prelude::Get,
 	parameter_types,
 	traits::{
-		ConstU128, ConstU16, ConstU32, Currency, EnsureOneOf, EqualPrivilegeOnly, Everything,
+		ConstU128, ConstU16, ConstU32, Currency, CurrencyToVote, EnsureOneOf, EqualPrivilegeOnly, Everything,
 		Imbalance, InstanceFilter, KeyOwnerProofSystem, Nothing, OnUnbalanced, Randomness,
 		StorageInfo, U128CurrencyToVote,
 	},
@@ -186,7 +186,7 @@ impl OnUnbalanced<NegativeImbalance> for DealWithFees {
 	}
 }
 
-pub const MILLICENTS: Balance = 1_000_000_000;
+pub const MILLICENTS: Balance = 10_000_000;
 pub const CENTS: Balance = 1_000 * MILLICENTS; // assume this is worth about a cent.
 pub const DOLLARS: Balance = 100 * CENTS;
 
@@ -729,6 +729,18 @@ impl Get<Option<(usize, ExtendedBalance)>> for OffchainRandomBalancing {
 	}
 }
 
+/// A candidate whose backed stake is less than `MIN_ELECTABLE_STAKE` will never be elected.
+pub const MIN_ELECTABLE_STAKE: Balance = 3_000_000 * DOLLARS;
+
+// A config for VrfSolver
+pub struct OnChainVrfSloverConfig;
+impl pallet_rrsc::VrfSloverConfig for OnChainVrfSloverConfig {
+	fn min_electable_weight() -> VoteWeight {
+		let total_issuance = <Runtime as pallet_cess_staking::Config>::Currency::total_issuance();
+		<Runtime as pallet_cess_staking::Config>::CurrencyToVote::to_vote(MIN_ELECTABLE_STAKE, total_issuance)
+	}
+}
+
 pub struct OnChainVrf;
 impl onchain::ExecutionConfig for OnChainVrf {
 	type System = Runtime;
@@ -737,6 +749,7 @@ impl onchain::ExecutionConfig for OnChainVrf {
 		pallet_election_provider_multi_phase::SolutionAccuracyOf<Runtime>,
 		Runtime,
 		(),
+		OnChainVrfSloverConfig,
 	>;
 	type DataProvider = <Runtime as pallet_election_provider_multi_phase::Config>::DataProvider;
 }
@@ -769,7 +782,7 @@ impl pallet_election_provider_multi_phase::Config for Runtime {
 	type Solution = NposSolution16;
 	type Fallback = onchain::BoundedExecution<OnChainVrf>;
 	type GovernanceFallback = onchain::BoundedExecution<OnChainVrf>;
-	type Solver = pallet_rrsc::VrfSolver<AccountId, SolutionAccuracyOf<Self>, Runtime, (), OffchainRandomBalancing>;
+	type Solver = pallet_rrsc::VrfSolver<AccountId, SolutionAccuracyOf<Self>, Runtime, (), OnChainVrfSloverConfig, OffchainRandomBalancing>;
 	type ForceOrigin = EnsureRootOrHalfCouncil;
 	type MaxElectableTargets = ConstU16<{ u16::MAX }>;
 	type MaxElectingVoters = MaxElectingVoters;
