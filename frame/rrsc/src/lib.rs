@@ -70,7 +70,7 @@ pub use randomness::CurrentBlockRandomness;
 pub use randomness::{
 	ParentBlockRandomness, RandomnessFromOneEpochAgo, RandomnessFromTwoEpochsAgo,
 };
-pub use vrf_solver::VrfSolver;
+pub use vrf_solver::{VrfSolver, VrfSloverConfig};
 
 pub use pallet::*;
 
