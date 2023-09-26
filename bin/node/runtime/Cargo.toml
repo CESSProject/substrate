@@ -99,7 +99,7 @@ pallet-referenda = { version = "4.0.0-dev", default-features = false, path = "..
 pallet-remark = { version = "4.0.0-dev", default-features = false, path = "../../../frame/remark" }
 pallet-root-testing = { version = "1.0.0-dev", default-features = false, path = "../../../frame/root-testing" }
 pallet-salary = { version = "4.0.0-dev", default-features = false, path = "../../../frame/salary" }
-pallet-session = { version = "4.0.0-dev", features = [ "historical" ], path = "../../../frame/session", default-features = false }
+pallet-session = { version = "4.0.0-dev", path = "../../../frame/session", default-features = false }
 pallet-session-benchmarking = { version = "4.0.0-dev", path = "../../../frame/session/benchmarking", default-features = false, optional = true }
 pallet-staking = { version = "4.0.0-dev", default-features = false, path = "../../../frame/staking" }
 pallet-staking-reward-curve = { version = "4.0.0-dev", default-features = false, path = "../../../frame/staking/reward-curve" }
