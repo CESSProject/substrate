@@ -42,7 +42,7 @@ pub use members::{
 mod validation;
 pub use validation::{
 	DisabledValidators, EstimateNextNewSession, EstimateNextSessionRotation, FindAuthor,
-	KeyOwnerProofSystem, Lateness, OneSessionHandler, ValidatorRegistration, ValidatorSet,
+	KeyOwnerProofSystem, Lateness, OneSessionHandler, ValidatorCredits, ValidatorRegistration, ValidatorSet,
 	ValidatorSetWithIdentification, VerifySeal,
 };
 

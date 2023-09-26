@@ -47,6 +47,7 @@ use sp_std::marker::PhantomData;
 pub trait WeightInfo {
 	fn phragmen(v: u32, t: u32, d: u32, ) -> Weight;
 	fn phragmms(v: u32, t: u32, d: u32, ) -> Weight;
+	fn vrf_solver(v: u32, t: u32, d: u32) -> Weight;
 }
 
 /// Weights for pallet_election_provider_support_benchmarking using the Substrate node and recommended hardware.
@@ -70,6 +71,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			// Standard Error: 6_649_000
 			.saturating_add(Weight::from_parts(1_711_424_000 as u64, 0).saturating_mul(d as u64))
 	}
+	fn vrf_solver(_: u32, _: u32, _: u32,) -> Weight {
+		Weight::from_parts(1 as u64, 0)
+	}
 }
 
 // For backwards compatibility and tests
@@ -91,5 +95,8 @@ impl WeightInfo for () {
 			.saturating_add(Weight::from_parts(65_000 as u64, 0).saturating_mul(t as u64))
 			// Standard Error: 6_649_000
 			.saturating_add(Weight::from_parts(1_711_424_000 as u64, 0).saturating_mul(d as u64))
+	}
+	fn vrf_solver(_: u32, _: u32, _: u32,) -> Weight {
+		Weight::from_parts(1 as u64, 0)
 	}
 }

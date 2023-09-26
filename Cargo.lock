@@ -847,6 +847,97 @@ dependencies = [
 ]
 
 [[package]]
+name = "cessc-consensus-rrsc"
+version = "0.10.0-dev"
+dependencies = [
+ "async-trait",
+ "cessp-consensus-rrsc",
+ "fork-tree",
+ "futures",
+ "log",
+ "num-bigint",
+ "num-rational",
+ "num-traits",
+ "parity-scale-codec",
+ "parking_lot 0.12.1",
+ "rand_chacha 0.2.2",
+ "sc-block-builder",
+ "sc-client-api",
+ "sc-consensus",
+ "sc-consensus-epochs",
+ "sc-consensus-slots",
+ "sc-keystore",
+ "sc-network",
+ "sc-network-test",
+ "sc-telemetry",
+ "scale-info",
+ "sp-api",
+ "sp-application-crypto",
+ "sp-block-builder",
+ "sp-blockchain",
+ "sp-consensus",
+ "sp-consensus-slots",
+ "sp-core",
+ "sp-inherents",
+ "sp-keyring",
+ "sp-keystore",
+ "sp-runtime",
+ "sp-timestamp",
+ "sp-tracing",
+ "substrate-prometheus-endpoint",
+ "substrate-test-runtime-client",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "cessc-consensus-rrsc-rpc"
+version = "0.10.0-dev"
+dependencies = [
+ "cessc-consensus-rrsc",
+ "cessp-consensus-rrsc",
+ "futures",
+ "jsonrpsee",
+ "sc-consensus",
+ "sc-consensus-epochs",
+ "sc-keystore",
+ "sc-rpc-api",
+ "serde",
+ "serde_json",
+ "sp-api",
+ "sp-application-crypto",
+ "sp-blockchain",
+ "sp-consensus",
+ "sp-core",
+ "sp-keyring",
+ "sp-keystore",
+ "sp-runtime",
+ "substrate-test-runtime-client",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "cessp-consensus-rrsc"
+version = "0.10.0-dev"
+dependencies = [
+ "async-trait",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-api",
+ "sp-application-crypto",
+ "sp-consensus",
+ "sp-consensus-slots",
+ "sp-core",
+ "sp-inherents",
+ "sp-keystore",
+ "sp-runtime",
+ "sp-std",
+ "sp-timestamp",
+]
+
+[[package]]
 name = "cexpr"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6753,6 +6844,35 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
+name = "pallet-rrsc"
+version = "4.0.0-dev"
+dependencies = [
+ "cessp-consensus-rrsc",
+ "frame-benchmarking",
+ "frame-election-provider-support",
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-authorship",
+ "pallet-balances",
+ "pallet-offences",
+ "pallet-session",
+ "pallet-staking",
+ "pallet-staking-reward-curve",
+ "pallet-timestamp",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-application-crypto",
+ "sp-core",
+ "sp-io",
+ "sp-npos-elections",
+ "sp-runtime",
+ "sp-session",
+ "sp-staking",
  "sp-std",
 ]
 
